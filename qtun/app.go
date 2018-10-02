@@ -54,7 +54,7 @@ func (a *App) StartFetchTunInterface() error {
 		go a.FetchAndProcessTunPkt()
 	}
 
-	return nil
+	return a.FetchAndProcessTunPkt()
 	// pkt := iface.NewPacketIP(a.config.Mtu)
 	// if a.config.Verbose == 1 {
 	// 	log.Printf("interface name: %s", a.iface.Name())

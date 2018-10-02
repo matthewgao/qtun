@@ -121,13 +121,9 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 			log.Printf("add to conn map, %s", remoteAddr)
 			// log.Printf("dump conn map, %v", s.Conns)
 
-			// s.Mtx.Lock()
-			// s.Conns[remoteAddr] = serverConn
-			// s.Mtx.Unlock()
 			go serverConn.run(func() {
 				s.RemoveConnByConnPointer(serverConn.conn)
 				log.Printf("Connections map: %v", s.Conns)
-
 			})
 		}
 	}
@@ -146,8 +142,12 @@ func (s *Server) GetConnsByAddr(dst string) *ServerConn {
 func (s *Server) SetConns(dst string, conn *net.TCPConn) {
 	s.Mtx.Lock()
 	defer s.Mtx.Unlock()
-	s.Conns[dst] = NewServerConn(conn, s.key, s.handler)
-	s.ConnsReverse[conn] = dst
+	if _, ok := s.Conns[dst]; !ok {
+		s.Conns[dst] = NewServerConn(conn, s.key, s.handler)
+		//Urgly 应该保证连接只run一下，只为了writebuf里面的内容可以正确的被处理，现在run了两次, 应该把读和写都统一在一个对象里管理
+		go s.Conns[dst].ProcessWrite()
+		s.ConnsReverse[conn] = dst
+	}
 }
 
 func (s *Server) RemoveConnByConnPointer(conn *net.TCPConn) {

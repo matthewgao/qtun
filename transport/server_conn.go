@@ -26,16 +26,21 @@ type ServerConn struct {
 	handler  ServerHandler
 	reader   *bufio.Reader
 	writeBuf *bytes.Buffer
+
+	chanWrite chan []byte
+	chanClose chan bool
 }
 
 func NewServerConn(conn *net.TCPConn, key string, handler ServerHandler) *ServerConn {
 	return &ServerConn{
-		conn:     conn,
-		key:      key,
-		handler:  handler,
-		nonce:    make([]byte, 12),
-		buf:      make([]byte, 65536),
-		writeBuf: &bytes.Buffer{},
+		conn:      conn,
+		key:       key,
+		handler:   handler,
+		nonce:     make([]byte, 12),
+		buf:       make([]byte, 65536),
+		writeBuf:  &bytes.Buffer{},
+		chanWrite: make(chan []byte, 1024),
+		chanClose: make(chan bool),
 	}
 }
 
@@ -160,9 +165,10 @@ func (cc *ServerConn) write(data []byte) error {
 	return err
 }
 
-// func (cc *ServerConn) Write(data []byte) {
-// 	cc.chanWrite <- data
-// }
+func (cc *ServerConn) Write(data []byte) {
+	// log.Printf("server conn write chan %d", len(cc.chanWrite))
+	cc.chanWrite <- data
+}
 
 func (cc *ServerConn) WriteNow(data []byte) error {
 	return cc.write(data)
@@ -175,8 +181,32 @@ func (sc *ServerConn) SendPacket(pkt iface.PacketIP) {
 		},
 	})
 
-	err := sc.WriteNow(data)
-	if err != nil {
-		log.Printf("sever send packet fail %v", err)
+	sc.Write(data)
+	// if err != nil {
+	// 	log.Printf("sever send packet fail %v", err)
+	// }
+}
+
+func (cc *ServerConn) ProcessWrite() (err error) {
+	defer func() {
+		if perr := recover(); perr != nil {
+			err = fmt.Errorf("server process write panic: %s", perr)
+		}
+		cc.conn.Close()
+		log.Printf("server conn closed")
+	}()
+	log.Printf("server conn ProcessWrite")
+	for {
+		select {
+		// case <-cc.chanClose:
+		// 	log.Printf("server conn write exit")
+		// 	return nil
+		case buf := <-cc.chanWrite:
+			// log.Printf("server conn write buf")
+			err = cc.write(buf)
+		}
+		if err != nil {
+			return err
+		}
 	}
 }

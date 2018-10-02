@@ -44,8 +44,8 @@ func (sc *ServerConn) run(cleanup func()) {
 		if err := recover(); err != nil {
 			log.Printf("server conn run err: %s", err)
 		}
-		sc.conn.Close()
 		cleanup()
+		sc.conn.Close()
 	}()
 	var err error
 	err = sc.crypto()

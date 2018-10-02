@@ -123,6 +123,7 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 			go serverConn.run(func() {
 				s.Mtx.Lock()
 				delete(s.Conns, remoteAddr)
+				log.Printf("Connections map: %v", s.Conns)
 				s.Mtx.Unlock()
 			})
 		}

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/songgao/water"
 )
@@ -62,7 +63,27 @@ func (i *Iface) Start() error {
 		return fmt.Errorf("err: %s %s", err, string(output))
 		// log.Printf("run ifconfig fail: %v, %s", err, string(output))
 	}
+
+	if runtime.GOOS == "darwin" {
+		i.AddSysRoute(&ip)
+	}
+
 	return nil
+}
+
+func (i *Iface) AddSysRoute(ip *net.IP) {
+	ipdot := strings.Split(ip.String(), ".")
+	subnet := strings.Join(ipdot[:len(ipdot)-1], ".") + ".0"
+	log.Printf(subnet)
+	cmd := exec.Command("route", "add", "-net",
+		subnet, ip.String())
+
+	output, err := cmd.CombinedOutput()
+	log.Printf("add route result: %v %s", err, string(output))
+	if err != nil {
+		// log.Printf("run ifconfig fail: %v, %s", err, string(output))
+		panic(fmt.Sprintf("err: %s %s", err, string(output)))
+	}
 }
 
 func (i *Iface) Name() string {

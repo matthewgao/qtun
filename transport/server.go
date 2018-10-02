@@ -11,27 +11,31 @@ import (
 )
 
 type Server struct {
-	publicAddr  string
-	privateAddr string
-	handler     ServerHandler
-	key         string
-	config      config.Config
+	publicAddr string
+	// privateAddr string
+	handler ServerHandler
+	key     string
+	config  config.Config
 
-	publicListener  *net.TCPListener
-	privateListener *net.TCPListener
+	publicListener *net.TCPListener
+	// privateListener *net.TCPListener
 
-	Mtx   *sync.Mutex
-	Conns map[string]*ServerConn
+	Mtx *sync.Mutex
+
+	//为了能够删除已经断开的连接，并能够反过来查询连接，所以有两个map
+	Conns        map[string]*ServerConn
+	ConnsReverse map[*ServerConn]string
 }
 
 func NewServer(publicAddr, privateAddr string, handler ServerHandler, key string) *Server {
 	srv := &Server{
-		publicAddr:  publicAddr,
-		privateAddr: privateAddr,
-		handler:     handler,
-		key:         key,
-		Conns:       make(map[string]*ServerConn),
-		Mtx:         &sync.Mutex{},
+		publicAddr: publicAddr,
+		// privateAddr:  privateAddr,
+		handler:      handler,
+		key:          key,
+		Conns:        make(map[string]*ServerConn),
+		ConnsReverse: make(map[*ServerConn]string),
+		Mtx:          &sync.Mutex{},
 	}
 	return srv
 }
@@ -70,28 +74,28 @@ func (s *Server) processPublic() {
 	}
 }
 
-func (s *Server) processPrivate() {
-	defer func() {
-		if err := recover(); err != nil {
-			log.Printf("private server panic: %s", err)
-		}
-		log.Printf("private server closed")
-	}()
-	for {
-		tcpAddr, err := net.ResolveTCPAddr("tcp", s.privateAddr)
-		if err != nil {
-			log.Printf("net resolve tcp addr err: %s", err)
-			time.Sleep(time.Second * 5)
-			continue
-		}
+// func (s *Server) processPrivate() {
+// 	defer func() {
+// 		if err := recover(); err != nil {
+// 			log.Printf("private server panic: %s", err)
+// 		}
+// 		log.Printf("private server closed")
+// 	}()
+// 	for {
+// 		tcpAddr, err := net.ResolveTCPAddr("tcp", s.privateAddr)
+// 		if err != nil {
+// 			log.Printf("net resolve tcp addr err: %s", err)
+// 			time.Sleep(time.Second * 5)
+// 			continue
+// 		}
 
-		err = s.listen(tcpAddr)
-		if err != nil {
-			log.Printf("server listen err: %s", err)
-		}
-		time.Sleep(time.Millisecond * 1000)
-	}
-}
+// 		err = s.listen(tcpAddr)
+// 		if err != nil {
+// 			log.Printf("server listen err: %s", err)
+// 		}
+// 		time.Sleep(time.Millisecond * 1000)
+// 	}
+// }
 
 func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 	defer func() {
@@ -115,16 +119,15 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 			//FIXME:have to control only one can connect to this now
 			remoteAddr := tcpConn.RemoteAddr().String()
 			log.Printf("add to conn map, %s", remoteAddr)
-			log.Printf("dump conn map, %v", s.Conns)
+			// log.Printf("dump conn map, %v", s.Conns)
 
 			// s.Mtx.Lock()
 			// s.Conns[remoteAddr] = serverConn
 			// s.Mtx.Unlock()
 			go serverConn.run(func() {
-				s.Mtx.Lock()
-				delete(s.Conns, remoteAddr)
+				s.RemoveConnByConnPointer(serverConn)
 				log.Printf("Connections map: %v", s.Conns)
-				s.Mtx.Unlock()
+
 			})
 		}
 	}
@@ -144,4 +147,15 @@ func (s *Server) SetConns(dst string, conns *net.TCPConn) {
 	s.Mtx.Lock()
 	defer s.Mtx.Unlock()
 	s.Conns[dst] = NewServerConn(conns, s.key, s.handler)
+	s.ConnsReverse[s.Conns[dst]] = dst
+}
+
+func (s *Server) RemoveConnByConnPointer(conn *ServerConn) {
+	s.Mtx.Lock()
+	defer s.Mtx.Unlock()
+	dst, ok := s.ConnsReverse[conn]
+	if ok {
+		delete(s.Conns, dst)
+		delete(s.ConnsReverse, conn)
+	}
 }

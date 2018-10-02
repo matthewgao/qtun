@@ -24,7 +24,7 @@ type Server struct {
 
 	//为了能够删除已经断开的连接，并能够反过来查询连接，所以有两个map
 	Conns        map[string]*ServerConn
-	ConnsReverse map[*ServerConn]string
+	ConnsReverse map[*net.TCPConn]string
 }
 
 func NewServer(publicAddr, privateAddr string, handler ServerHandler, key string) *Server {
@@ -34,7 +34,7 @@ func NewServer(publicAddr, privateAddr string, handler ServerHandler, key string
 		handler:      handler,
 		key:          key,
 		Conns:        make(map[string]*ServerConn),
-		ConnsReverse: make(map[*ServerConn]string),
+		ConnsReverse: make(map[*net.TCPConn]string),
 		Mtx:          &sync.Mutex{},
 	}
 	return srv
@@ -125,7 +125,7 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 			// s.Conns[remoteAddr] = serverConn
 			// s.Mtx.Unlock()
 			go serverConn.run(func() {
-				s.RemoveConnByConnPointer(serverConn)
+				s.RemoveConnByConnPointer(serverConn.conn)
 				log.Printf("Connections map: %v", s.Conns)
 
 			})
@@ -143,14 +143,14 @@ func (s *Server) GetConnsByAddr(dst string) *ServerConn {
 	return nil
 }
 
-func (s *Server) SetConns(dst string, conns *net.TCPConn) {
+func (s *Server) SetConns(dst string, conn *net.TCPConn) {
 	s.Mtx.Lock()
 	defer s.Mtx.Unlock()
-	s.Conns[dst] = NewServerConn(conns, s.key, s.handler)
-	s.ConnsReverse[s.Conns[dst]] = dst
+	s.Conns[dst] = NewServerConn(conn, s.key, s.handler)
+	s.ConnsReverse[conn] = dst
 }
 
-func (s *Server) RemoveConnByConnPointer(conn *ServerConn) {
+func (s *Server) RemoveConnByConnPointer(conn *net.TCPConn) {
 	s.Mtx.Lock()
 	defer s.Mtx.Unlock()
 	dst, ok := s.ConnsReverse[conn]

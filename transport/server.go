@@ -134,8 +134,8 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 }
 
 func (s *Server) GetConnsByAddr(dst string) *ServerConn {
-	s.Mtx.Lock()
-	defer s.Mtx.Unlock()
+	// s.Mtx.Lock()
+	// defer s.Mtx.Unlock()
 	conn, ok := s.Conns[dst]
 	if ok {
 		return conn

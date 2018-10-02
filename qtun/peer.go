@@ -1,4 +1,4 @@
-package meshbird
+package qtun
 
 import (
 	"fmt"
@@ -6,13 +6,13 @@ import (
 	"net"
 	"time"
 
-	"github.com/matthewgao/meshbird/config"
-	"github.com/matthewgao/meshbird/iface"
-	"github.com/matthewgao/meshbird/protocol"
+	"github.com/matthewgao/qtun/config"
+	"github.com/matthewgao/qtun/iface"
+	"github.com/matthewgao/qtun/protocol"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/matthewgao/meshbird/transport"
-	"github.com/matthewgao/meshbird/utils"
+	"github.com/matthewgao/qtun/transport"
+	"github.com/matthewgao/qtun/utils"
 )
 
 type Peer struct {

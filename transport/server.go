@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matthewgao/meshbird/config"
+	"github.com/matthewgao/qtun/config"
 )
 
 type Server struct {

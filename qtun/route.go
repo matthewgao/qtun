@@ -1,4 +1,4 @@
-package meshbird
+package qtun
 
 type Route struct {
 	IP        string

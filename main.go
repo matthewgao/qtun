@@ -4,8 +4,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/matthewgao/meshbird/config"
-	"github.com/matthewgao/meshbird/meshbird"
+	"github.com/matthewgao/qtun/config"
+	"github.com/matthewgao/qtun/qtun"
 	"github.com/miolini/cliconfig"
 	"github.com/urfave/cli"
 )
@@ -13,12 +13,12 @@ import (
 func main() {
 	var cfg config.Config
 	app := cli.NewApp()
-	app.Name = "meshbird"
-	app.Flags = cliconfig.Fill(&cfg, "MESHBIRD_")
+	app.Name = "qtun"
+	app.Flags = cliconfig.Fill(&cfg, "QTUN_")
 	app.Action = func(ctx *cli.Context) error {
 		log.Printf("config: %#v", cfg)
-		meshbirdApp := meshbird.NewApp(cfg)
-		return meshbirdApp.Run()
+		qtunApp := qtun.NewApp(cfg)
+		return qtunApp.Run()
 	}
 	err := app.Run(os.Args)
 	if err != nil {

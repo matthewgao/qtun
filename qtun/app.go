@@ -1,4 +1,4 @@
-package meshbird
+package qtun
 
 import (
 	"log"
@@ -6,10 +6,10 @@ import (
 	"sync"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/matthewgao/meshbird/config"
-	"github.com/matthewgao/meshbird/iface"
-	"github.com/matthewgao/meshbird/protocol"
-	"github.com/matthewgao/meshbird/transport"
+	"github.com/matthewgao/qtun/config"
+	"github.com/matthewgao/qtun/iface"
+	"github.com/matthewgao/qtun/protocol"
+	"github.com/matthewgao/qtun/transport"
 )
 
 type App struct {

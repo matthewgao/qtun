@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matthewgao/meshbird/utils"
+	"github.com/matthewgao/qtun/utils"
 )
 
 var nilBuf = make([]byte, 0)

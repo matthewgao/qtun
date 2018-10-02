@@ -49,13 +49,50 @@ func (a *App) StartFetchTunInterface() error {
 	if err != nil {
 		return err
 	}
-	pkt := iface.NewPacketIP(a.config.Mtu)
-	if a.config.Verbose == 1 {
-		log.Printf("interface name: %s", a.iface.Name())
+
+	for i := 0; i < 10; i++ {
+		go a.FetchAndProcessTunPkt()
 	}
+
+	return nil
+	// pkt := iface.NewPacketIP(a.config.Mtu)
+	// if a.config.Verbose == 1 {
+	// 	log.Printf("interface name: %s", a.iface.Name())
+	// }
+
+	// for {
+	// 	n, err := a.iface.Read(pkt)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	src := pkt.GetSourceIP().String()
+	// 	dst := pkt.GetDestinationIP().String()
+	// 	if a.config.Verbose == 1 {
+	// 		log.Printf("tun packet: src=%s dst=%s len=%d", src, dst, n)
+	// 	}
+	// 	if a.config.ServerMode == 1 {
+	// 		log.Printf("receiver tun packet dst address  dst=%s, route_local_addr=%s", dst, a.routes[dst].LocalAddr)
+	// 		conn := a.server.GetConnsByAddr(a.routes[dst].LocalAddr)
+	// 		if conn == nil {
+	// 			if a.config.Verbose == 1 {
+	// 				log.Printf("unknown destination, packet dropped")
+	// 			}
+	// 		} else {
+	// 			conn.SendPacket(pkt)
+	// 		}
+	// 	} else {
+	// 		//client send packet
+	// 		a.client.SendPacket(pkt)
+	// 	}
+	// }
+}
+
+func (a *App) FetchAndProcessTunPkt() error {
+	pkt := iface.NewPacketIP(a.config.Mtu)
 	for {
 		n, err := a.iface.Read(pkt)
 		if err != nil {
+			log.Printf("read ip pkt error: %v", err)
 			return err
 		}
 		src := pkt.GetSourceIP().String()
@@ -63,8 +100,6 @@ func (a *App) StartFetchTunInterface() error {
 		if a.config.Verbose == 1 {
 			log.Printf("tun packet: src=%s dst=%s len=%d", src, dst, n)
 		}
-		// a.mutex.RLock()
-		// peer, ok := a.peers[a.routes[dst].LocalAddr]
 		if a.config.ServerMode == 1 {
 			log.Printf("receiver tun packet dst address  dst=%s, route_local_addr=%s", dst, a.routes[dst].LocalAddr)
 			conn := a.server.GetConnsByAddr(a.routes[dst].LocalAddr)
@@ -79,8 +114,6 @@ func (a *App) StartFetchTunInterface() error {
 			//client send packet
 			a.client.SendPacket(pkt)
 		}
-		// a.mutex.RUnlock()
-
 	}
 }
 

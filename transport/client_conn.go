@@ -291,7 +291,7 @@ func (sc *ClientConn) read() ([]byte, error) {
 func (sc *ClientConn) GetConnPort() string {
 	fullWithPort := sc.conn.LocalAddr().String()
 	addrPair := strings.Split(fullWithPort, ":")
-	log.Printf("get local tcp addr %s", fullWithPort)
+	// log.Printf("get local tcp addr %s", fullWithPort)
 	if len(addrPair) < 2 {
 		panic("fail to get local tcp port")
 	}

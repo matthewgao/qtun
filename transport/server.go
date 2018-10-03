@@ -99,11 +99,11 @@ func (s *Server) processPublic() {
 
 func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 	defer func() {
-		log.Printf("server listener closed")
+		log.Printf("Server::Listen::server listener closed")
 	}()
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	if err != nil {
-		return fmt.Errorf("net listen tcp err: %s", err)
+		return fmt.Errorf("Server::Listen::net listen tcp err: %s", err)
 	}
 	defer listener.Close()
 	for {
@@ -113,25 +113,25 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 				continue
 			}
 			return fmt.Errorf("server accept err: %s", err)
-		} else {
-			log.Printf("new accept from %s", tcpConn.RemoteAddr())
-			serverConn := NewServerConn(tcpConn, s.key, s.handler)
-			//FIXME:have to control only one can connect to this now
-			remoteAddr := tcpConn.RemoteAddr().String()
-			log.Printf("add to conn map, %s", remoteAddr)
-			// log.Printf("dump conn map, %v", s.Conns)
-
-			go serverConn.run(func() {
-				s.RemoveConnByConnPointer(serverConn.conn)
-				log.Printf("Connections map: %v", s.Conns)
-			})
 		}
+
+		log.Printf("Server::Listen::new accept from %s", tcpConn.RemoteAddr())
+		serverConn := NewServerConn(tcpConn, s.key, s.handler)
+		//FIXME:have to control only one can connect to this now
+		remoteAddr := tcpConn.RemoteAddr().String()
+		log.Printf("Server::Listen::add to conn map, %s", remoteAddr)
+		// log.Printf("dump conn map, %v", s.Conns)
+
+		go serverConn.run(func() {
+			s.RemoveConnByConnPointer(serverConn.conn)
+			log.Printf("Server::Listen::Connections map: %v", s.Conns)
+		})
+
 	}
 }
 
 func (s *Server) GetConnsByAddr(dst string) *ServerConn {
-	// s.Mtx.Lock()
-	// defer s.Mtx.Unlock()
+	//No need to add lock
 	conn, ok := s.Conns[dst]
 	if ok {
 		return conn

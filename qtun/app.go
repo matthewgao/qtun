@@ -55,36 +55,6 @@ func (a *App) StartFetchTunInterface() error {
 	}
 
 	return a.FetchAndProcessTunPkt()
-	// pkt := iface.NewPacketIP(a.config.Mtu)
-	// if a.config.Verbose == 1 {
-	// 	log.Printf("interface name: %s", a.iface.Name())
-	// }
-
-	// for {
-	// 	n, err := a.iface.Read(pkt)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	src := pkt.GetSourceIP().String()
-	// 	dst := pkt.GetDestinationIP().String()
-	// 	if a.config.Verbose == 1 {
-	// 		log.Printf("tun packet: src=%s dst=%s len=%d", src, dst, n)
-	// 	}
-	// 	if a.config.ServerMode == 1 {
-	// 		log.Printf("receiver tun packet dst address  dst=%s, route_local_addr=%s", dst, a.routes[dst].LocalAddr)
-	// 		conn := a.server.GetConnsByAddr(a.routes[dst].LocalAddr)
-	// 		if conn == nil {
-	// 			if a.config.Verbose == 1 {
-	// 				log.Printf("unknown destination, packet dropped")
-	// 			}
-	// 		} else {
-	// 			conn.SendPacket(pkt)
-	// 		}
-	// 	} else {
-	// 		//client send packet
-	// 		a.client.SendPacket(pkt)
-	// 	}
-	// }
 }
 
 func (a *App) FetchAndProcessTunPkt() error {
@@ -92,20 +62,20 @@ func (a *App) FetchAndProcessTunPkt() error {
 	for {
 		n, err := a.iface.Read(pkt)
 		if err != nil {
-			log.Printf("read ip pkt error: %v", err)
+			log.Printf("FetchAndProcessTunPkt::read ip pkt error: %v", err)
 			return err
 		}
 		src := pkt.GetSourceIP().String()
 		dst := pkt.GetDestinationIP().String()
 		if a.config.Verbose == 1 {
-			log.Printf("tun packet: src=%s dst=%s len=%d", src, dst, n)
+			log.Printf("FetchAndProcessTunPkt::got tun packet: src=%s dst=%s len=%d", src, dst, n)
 		}
 		if a.config.ServerMode == 1 {
-			log.Printf("receiver tun packet dst address  dst=%s, route_local_addr=%s", dst, a.routes[dst].LocalAddr)
+			// log.Printf("FetchAndProcessTunPkt::receiver tun packet dst address  dst=%s, route_local_addr=%s", dst, a.routes[dst].LocalAddr)
 			conn := a.server.GetConnsByAddr(a.routes[dst].LocalAddr)
 			if conn == nil {
 				if a.config.Verbose == 1 {
-					log.Printf("unknown destination, packet dropped")
+					log.Printf("FetchAndProcessTunPkt::unknown destination, packet dropped src=%s,dst=%s", src, dst)
 				}
 			} else {
 				conn.SendPacket(pkt)
@@ -142,7 +112,7 @@ func (a *App) OnData(buf []byte, conn *net.TCPConn) {
 	ep := protocol.Envelope{}
 	err := proto.Unmarshal(buf, &ep)
 	if err != nil {
-		log.Printf("proto unmarshal err: %s", err)
+		log.Printf("OnData::proto unmarshal err: %s", err)
 		return
 	}
 	switch ep.Type.(type) {
@@ -158,13 +128,13 @@ func (a *App) OnData(buf []byte, conn *net.TCPConn) {
 
 		a.server.SetConns(a.routes[ping.GetIP()].LocalAddr, conn)
 		if a.config.Verbose == 1 {
-			log.Printf("routes %s", a.routes)
+			log.Printf("OnData::routes %s", a.routes)
 		}
 		a.mutex.Unlock()
 	case *protocol.Envelope_Packet:
 		pkt := iface.PacketIP(ep.GetPacket().GetPayload())
 		if a.config.Verbose == 1 {
-			log.Printf("received packet: src=%s dst=%s len=%d",
+			log.Printf("OnData::received packet: src=%s dst=%s len=%d",
 				pkt.GetSourceIP(), pkt.GetDestinationIP(), len(pkt))
 		}
 		a.iface.Write(pkt)

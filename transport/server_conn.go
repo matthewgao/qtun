@@ -58,7 +58,7 @@ func (sc *ServerConn) run(cleanup func()) {
 
 	sc.conn.SetReadBuffer(1024 * 1024)
 	sc.conn.SetWriteBuffer(1024 * 1024)
-	sc.conn.SetNoDelay(true)
+	sc.conn.SetNoDelay(false) // close it, and see if the bandwidth can be increased
 
 	sc.reader = bufio.NewReader(sc.conn)
 	for {

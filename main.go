@@ -2,7 +2,10 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
+
+	_ "net/http/pprof"
 
 	"github.com/matthewgao/qtun/config"
 	"github.com/matthewgao/qtun/qtun"
@@ -20,6 +23,11 @@ func main() {
 		qtunApp := qtun.NewApp(cfg)
 		return qtunApp.Run()
 	}
+
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
 	err := app.Run(os.Args)
 	if err != nil {
 		log.Printf("app run err: %s", err)

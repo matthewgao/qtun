@@ -229,7 +229,7 @@ func (cc *ClientConn) WriteNow(data []byte) error {
 func (sc *ClientConn) runRead() {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("runRead:client conn run err: %s", err)
+			log.Printf("ClientConn::runRead::painc::conn run err: %s", err)
 		}
 		sc.conn.Close()
 	}()
@@ -245,7 +245,7 @@ func (sc *ClientConn) runRead() {
 	for {
 		data, err := sc.read()
 		if err != nil {
-			log.Printf("runRead:client conn read err: %s", err)
+			log.Printf("ClientConn::runRead:conn read err: %s", err)
 			return
 		}
 		if sc.handler != nil {

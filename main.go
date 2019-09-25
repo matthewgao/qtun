@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"net/http"
 	"os"
 
 	_ "net/http/pprof"
@@ -24,9 +23,9 @@ func main() {
 		return qtunApp.Run()
 	}
 
-	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
-	}()
+	// go func() {
+	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
+	// }()
 
 	err := app.Run(os.Args)
 	if err != nil {

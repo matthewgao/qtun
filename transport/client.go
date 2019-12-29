@@ -151,18 +151,19 @@ func (c *Client) GetTunLocalAddrWithPort() string {
 func (c *Client) SendPing() {
 	ip, _, err := net.ParseCIDR(config.GetInstance().Ip)
 	utils.POE(err)
+	localAddr := c.GetTunLocalAddrWithPort()
 	env := &protocol.Envelope{
 		Type: &protocol.Envelope_Ping{
 			Ping: &protocol.MessagePing{
 				Timestamp:        time.Now().UnixNano(),
-				LocalAddr:        c.GetTunLocalAddrWithPort(), //唯一的表示一个CLINET端
+				LocalAddr:        localAddr, //唯一的表示一个CLINET端
 				LocalPrivateAddr: "not_use",
 				DC:               "client",
 				IP:               ip.String(),
 			},
 		},
 	}
-
+	log.Printf("send ping: %s, %s", localAddr, ip.String())
 	data, err := proto.Marshal(env)
 	utils.POE(err)
 	c.Write(data)

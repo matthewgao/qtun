@@ -89,7 +89,7 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 		log.Printf("Server::Listen::add to conn map, %s", remoteAddr)
 		// log.Printf("dump conn map, %v", s.Conns)
 
-		go serverConn.ProcessWrite()
+		// go serverConn.ProcessWrite()
 		go serverConn.run(func() {
 			s.RemoveConnByConnPointer(serverConn.conn)
 			log.Printf("Server::Listen::Connections map: %v", s.Conns)
@@ -120,10 +120,10 @@ func (s *Server) SetConns(dst string, conn *net.TCPConn) {
 		serverConn := NewServerConn(conn, s.key, s.handler)
 		//Urgly 应该保证连接只run一下，只为了writebuf里面的内容可以正确的被处理，现在run了两次, 应该把读和写都统一在一个对象里管理
 		go serverConn.ProcessWrite()
-		go serverConn.run(func() {
-			s.RemoveConnByConnPointer(serverConn.conn)
-			log.Printf("Server::Listen::Connections map: %v", s.Conns)
-		})
+		// go serverConn.run(func() {
+		// 	s.RemoveConnByConnPointer(serverConn.conn)
+		// 	log.Printf("Server::Listen::Connections map: %v", s.Conns)
+		// })
 		s.Conns[dst] = serverConn
 		s.ConnsReverse[conn] = dst
 	} else {

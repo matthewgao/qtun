@@ -70,7 +70,7 @@ func (s *Server) processPublic() {
 		if err != nil {
 			log.Printf("server listen err: %s", err)
 		}
-		time.Sleep(time.Millisecond * 1000)
+		time.Sleep(time.Second)
 	}
 }
 
@@ -112,7 +112,9 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 				continue
 			}
-			return fmt.Errorf("server accept err: %s", err)
+			// return fmt.Errorf("server accept err: %s", err)
+			log.Printf("server accept err: %s", err)
+			continue
 		}
 
 		log.Printf("Server::Listen::new accept from %s", tcpConn.RemoteAddr())

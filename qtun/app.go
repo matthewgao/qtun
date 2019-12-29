@@ -51,13 +51,13 @@ func (a *App) StartFetchTunInterface() error {
 	}
 
 	for i := 0; i < 10; i++ {
-		go a.FetchAndProcessTunPkt()
+		go a.FetchAndProcessTunPkt(i)
 	}
 
-	return a.FetchAndProcessTunPkt()
+	return a.FetchAndProcessTunPkt(255)
 }
 
-func (a *App) FetchAndProcessTunPkt() error {
+func (a *App) FetchAndProcessTunPkt(workerNum int) error {
 	pkt := iface.NewPacketIP(a.config.Mtu)
 	for {
 		n, err := a.iface.Read(pkt)
@@ -68,15 +68,15 @@ func (a *App) FetchAndProcessTunPkt() error {
 		src := pkt.GetSourceIP().String()
 		dst := pkt.GetDestinationIP().String()
 		if a.config.Verbose == 1 {
-			log.Printf("FetchAndProcessTunPkt::got tun packet: src=%s dst=%s len=%d", src, dst, n)
+			log.Printf("FetchAndProcessTunPkt::got tun packet: worker=%d, src=%s dst=%s len=%d", workerNum, src, dst, n)
 		}
+
 		if a.config.ServerMode == 1 {
-			// log.Printf("FetchAndProcessTunPkt::receiver tun packet dst address  dst=%s, route_local_addr=%s", dst, a.routes[dst].LocalAddr)
+			log.Printf("FetchAndProcessTunPkt::receiver tun packet dst address, worker=%d, dst=%s, route_local_addr=%s",
+				workerNum, dst, a.routes[dst].LocalAddr)
 			conn := a.server.GetConnsByAddr(a.routes[dst].LocalAddr)
 			if conn == nil {
-				if a.config.Verbose == 1 {
-					log.Printf("FetchAndProcessTunPkt::unknown destination, packet dropped src=%s,dst=%s", src, dst)
-				}
+				log.Printf("FetchAndProcessTunPkt::unknown destination, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
 			} else {
 				conn.SendPacket(pkt)
 			}
@@ -96,17 +96,17 @@ func (a *App) InitClient() error {
 	return nil
 }
 
-func (a *App) getRoutes() []Route {
-	a.mutex.Lock()
-	routes := make([]Route, len(a.routes))
-	i := 0
-	for _, route := range a.routes {
-		routes[i] = route
-		i++
-	}
-	a.mutex.Unlock()
-	return routes
-}
+// func (a *App) getRoutes() []Route {
+// 	a.mutex.Lock()
+// 	routes := make([]Route, len(a.routes))
+// 	i := 0
+// 	for _, route := range a.routes {
+// 		routes[i] = route
+// 		i++
+// 	}
+// 	a.mutex.Unlock()
+// 	return routes
+// }
 
 func (a *App) OnData(buf []byte, conn *net.TCPConn) {
 	ep := protocol.Envelope{}
@@ -125,6 +125,8 @@ func (a *App) OnData(buf []byte, conn *net.TCPConn) {
 			LocalAddr: ping.GetLocalAddr(),
 			IP:        ping.GetIP(),
 		}
+
+		log.Printf("Proto Ping local=%s, ip=%s", ping.GetLocalAddr(), ping.GetIP())
 
 		a.server.SetConns(a.routes[ping.GetIP()].LocalAddr, conn)
 		if a.config.Verbose == 1 {

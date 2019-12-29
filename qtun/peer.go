@@ -35,13 +35,13 @@ func NewPeer(cfg config.Config, handler transport.ServerHandler) *Peer {
 
 func (p *Peer) Start() {
 	p.client.Start()
-	go p.process()
+	go p.ping()
 }
 
-func (p *Peer) process() {
+func (p *Peer) ping() {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("peer process panic: %s", err)
+			log.Printf("peer ping panic: %s", err)
 		}
 	}()
 	tickerPing := time.NewTicker(time.Second * 2)

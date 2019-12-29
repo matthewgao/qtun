@@ -39,7 +39,7 @@ func NewServerConn(conn *net.TCPConn, key string, handler ServerHandler) *Server
 		nonce:     make([]byte, 12),
 		buf:       make([]byte, 65536),
 		writeBuf:  &bytes.Buffer{},
-		chanWrite: make(chan []byte, 1024),
+		chanWrite: make(chan []byte, 65536),
 		// chanClose: make(chan bool),
 	}
 }
@@ -67,8 +67,11 @@ func (sc *ServerConn) run(cleanup func()) {
 			log.Printf("ServerConn::run::conn read err: %s", err)
 			return
 		}
+
 		if sc.handler != nil {
 			sc.handler.OnData(data, sc.conn)
+		} else {
+			log.Printf("ServerConn:: sever_conn is nil")
 		}
 	}
 }

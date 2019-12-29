@@ -231,7 +231,9 @@ func (sc *ClientConn) runRead() {
 		if err := recover(); err != nil {
 			log.Printf("ClientConn::runRead::painc::conn run err: %s", err)
 		}
-		sc.conn.Close()
+		if sc.conn != nil {
+			sc.conn.Close()
+		}
 	}()
 	var err error
 	err = sc.crypto()
@@ -248,8 +250,11 @@ func (sc *ClientConn) runRead() {
 			log.Printf("ClientConn::runRead:conn read err: %s", err)
 			return
 		}
+
 		if sc.handler != nil {
 			sc.handler.OnData(data, sc.conn)
+		} else {
+			log.Printf("ClientConn::runRead:handler is null")
 		}
 	}
 }

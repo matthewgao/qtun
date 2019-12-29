@@ -23,10 +23,6 @@ func main() {
 		return qtunApp.Run()
 	}
 
-	// go func() {
-	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
-	// }()
-
 	err := app.Run(os.Args)
 	if err != nil {
 		log.Printf("app run err: %s", err)

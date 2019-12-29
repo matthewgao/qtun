@@ -112,7 +112,7 @@ func (s *Server) GetConnsByAddr(dst string) *ServerConn {
 func (s *Server) SetConns(dst string, conn *net.TCPConn) {
 	s.Mtx.Lock()
 	defer s.Mtx.Unlock()
-	if _, ok := s.Conns[dst]; !ok {
+	if v, ok := s.Conns[dst]; !ok {
 		if conn == nil {
 			return
 		}
@@ -126,6 +126,10 @@ func (s *Server) SetConns(dst string, conn *net.TCPConn) {
 		})
 		s.Conns[dst] = serverConn
 		s.ConnsReverse[conn] = dst
+	} else {
+		if v.conn == nil {
+			delete(s.Conns, dst)
+		}
 	}
 }
 

@@ -75,29 +75,34 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 			log.Printf("FetchAndProcessTunPkt::receiver tun packet dst address, worker=%d, dst=%s, route_local_addr=%s",
 				workerNum, dst, this.routes[dst])
 
-			conns, ok := this.routes[dst]
-			if !ok {
-				log.Printf("FetchAndProcessTunPkt::no route, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
-				continue
-			}
+			for {
+				conns, ok := this.routes[dst]
+				if !ok {
+					log.Printf("FetchAndProcessTunPkt::no route, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
+					break
+				}
 
-			keys := []string{}
-			for k := range conns {
-				keys = append(keys, k)
-			}
+				keys := []string{}
+				for k := range conns {
+					keys = append(keys, k)
+				}
 
-			if len(keys) == 0 {
-				log.Printf("FetchAndProcessTunPkt::no conns, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
-				continue
-			}
+				if len(keys) == 0 {
+					log.Printf("FetchAndProcessTunPkt::no conns, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
+					break
+				}
 
-			idx := rand.Intn(len(keys))
+				idx := rand.Intn(len(keys))
 
-			conn := this.server.GetConnsByAddr(keys[idx])
-			if conn == nil {
-				log.Printf("FetchAndProcessTunPkt::unknown destination, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
-			} else {
-				conn.SendPacket(pkt)
+				conn := this.server.GetConnsByAddr(keys[idx])
+				if conn == nil {
+					log.Printf("FetchAndProcessTunPkt::no connection, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
+					delete(conns, keys[idx])
+					this.routes[dst] = conns
+				} else {
+					conn.SendPacket(pkt)
+					break
+				}
 			}
 		} else {
 			//client send packet

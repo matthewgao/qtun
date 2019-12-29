@@ -2,6 +2,6 @@ package transport
 
 import "net"
 
-type ServerHandler interface {
+type GrpcHandler interface {
 	OnData([]byte, *net.TCPConn)
 }

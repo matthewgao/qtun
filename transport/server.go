@@ -11,10 +11,9 @@ import (
 )
 
 type Server struct {
-	publicAddr string
-	handler    ServerHandler
-	key        string
-	// config         config.Config
+	publicAddr     string
+	handler        GrpcHandler
+	key            string
 	publicListener *net.TCPListener
 	Mtx            *sync.Mutex
 
@@ -23,7 +22,7 @@ type Server struct {
 	ConnsReverse map[*net.TCPConn]string
 }
 
-func NewServer(publicAddr string, handler ServerHandler, key string) *Server {
+func NewServer(publicAddr string, handler GrpcHandler, key string) *Server {
 	srv := &Server{
 		publicAddr:   publicAddr,
 		handler:      handler,
@@ -34,10 +33,6 @@ func NewServer(publicAddr string, handler ServerHandler, key string) *Server {
 	}
 	return srv
 }
-
-// func (s *Server) SetConfig(cfg config.Config) {
-// 	s.config = cfg
-// }
 
 func (s *Server) Start() {
 	if config.GetInstance().ServerMode {
@@ -66,29 +61,6 @@ func (s *Server) processPublic() {
 		time.Sleep(time.Second)
 	}
 }
-
-// func (s *Server) processPrivate() {
-// 	defer func() {
-// 		if err := recover(); err != nil {
-// 			log.Printf("private server panic: %s", err)
-// 		}
-// 		log.Printf("private server closed")
-// 	}()
-// 	for {
-// 		tcpAddr, err := net.ResolveTCPAddr("tcp", s.privateAddr)
-// 		if err != nil {
-// 			log.Printf("net resolve tcp addr err: %s", err)
-// 			time.Sleep(time.Second * 5)
-// 			continue
-// 		}
-
-// 		err = s.listen(tcpAddr)
-// 		if err != nil {
-// 			log.Printf("server listen err: %s", err)
-// 		}
-// 		time.Sleep(time.Millisecond * 1000)
-// 	}
-// }
 
 func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 	defer func() {

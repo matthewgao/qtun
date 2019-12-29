@@ -1,10 +1,19 @@
 package transport
 
 import (
+	"fmt"
 	"log"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/matthewgao/qtun/config"
+	"github.com/matthewgao/qtun/iface"
+	"github.com/matthewgao/qtun/protocol"
+	"github.com/matthewgao/qtun/utils"
+
+	"github.com/golang/protobuf/proto"
 )
 
 type Client struct {
@@ -15,19 +24,17 @@ type Client struct {
 	mutex      sync.RWMutex
 	serial     int64
 	wg         sync.WaitGroup
-	handler    ServerHandler
+	handler    GrpcHandler
 }
 
-func NewClient(remoteAddr string, key string, threads int) *Client {
+func NewClient(remoteAddr string, key string, threads int, handler GrpcHandler) *Client {
 	return &Client{
 		remoteAddr: remoteAddr,
 		key:        key,
 		threads:    threads,
+		handler:    handler,
 	}
-}
 
-func (c *Client) SetHandler(handler ServerHandler) {
-	c.handler = handler
 }
 
 func (c *Client) Start() {
@@ -44,6 +51,7 @@ func (c *Client) Start() {
 		go c.conns[connIndex].runRead()
 	}
 	c.mutex.Unlock()
+	go c.ping()
 }
 
 func (c *Client) Stop() {
@@ -103,4 +111,50 @@ func (c *Client) GetRemotePortRandom() string {
 	next := int(serial) % c.threads
 	conn := c.conns[next]
 	return conn.GetConnPort()
+}
+
+func (c *Client) ping() {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Printf("peer ping panic: %s", err)
+		}
+	}()
+	tickerPing := time.NewTicker(time.Second * 2)
+	defer tickerPing.Stop()
+	for range tickerPing.C {
+		c.SendPing()
+	}
+}
+
+func (c *Client) GetTunLocalAddrWithPort() string {
+	return fmt.Sprintf("%s:%s", config.GetInstance().Ip, c.GetRemotePortRandom())
+}
+
+func (c *Client) SendPing() {
+	ip, _, err := net.ParseCIDR(config.GetInstance().Ip)
+	utils.POE(err)
+	env := &protocol.Envelope{
+		Type: &protocol.Envelope_Ping{
+			Ping: &protocol.MessagePing{
+				Timestamp:        time.Now().UnixNano(),
+				LocalAddr:        c.GetTunLocalAddrWithPort(), //唯一的表示一个CLINET端
+				LocalPrivateAddr: "not_use",
+				DC:               "client",
+				IP:               ip.String(),
+			},
+		},
+	}
+
+	data, err := proto.Marshal(env)
+	utils.POE(err)
+	c.Write(data)
+}
+
+func (c *Client) SendPacket(pkt iface.PacketIP) {
+	data, _ := proto.Marshal(&protocol.Envelope{
+		Type: &protocol.Envelope_Packet{
+			Packet: &protocol.MessagePacket{Payload: pkt},
+		},
+	})
+	c.Write(data)
 }

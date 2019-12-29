@@ -14,7 +14,7 @@ import (
 
 type App struct {
 	config *config.Config
-	client *Peer
+	client *transport.Client
 	routes map[string]Route
 	mutex  sync.RWMutex
 	server *transport.Server
@@ -28,40 +28,38 @@ func NewApp() *App {
 	}
 }
 
-func (a *App) Run() error {
+func (this *App) Run() error {
 	if config.GetInstance().ServerMode {
-		a.server = transport.NewServer(a.config.Listen, a, a.config.Key)
-		// a.server.SetConfig(a.config)
-		go a.server.Start()
+		this.server = transport.NewServer(this.config.Listen, this, this.config.Key)
+		go this.server.Start()
 	} else {
-		err := a.InitClient()
-		if err != nil {
-			return err
-		}
+		// err := this.InitClient()
+		this.client = transport.NewClient(this.config.RemoteAddrs, this.config.Key, this.config.TransportThreads, this)
+		this.client.Start()
 	}
 
-	return a.StartFetchTunInterface()
+	return this.StartFetchTunInterface()
 }
 
-func (a *App) StartFetchTunInterface() error {
-	a.iface = iface.New("", a.config.Ip, a.config.Mtu)
-	err := a.iface.Start()
+func (this *App) StartFetchTunInterface() error {
+	this.iface = iface.New("", this.config.Ip, this.config.Mtu)
+	err := this.iface.Start()
 	if err != nil {
 		return err
 	}
 
 	for i := 0; i < 10; i++ {
-		go a.FetchAndProcessTunPkt(i)
+		go this.FetchAndProcessTunPkt(i)
 	}
 
-	return a.FetchAndProcessTunPkt(255)
+	return this.FetchAndProcessTunPkt(255)
 }
 
-func (a *App) FetchAndProcessTunPkt(workerNum int) error {
+func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 	mtu := config.GetInstance().Mtu
 	pkt := iface.NewPacketIP(mtu)
 	for {
-		n, err := a.iface.Read(pkt)
+		n, err := this.iface.Read(pkt)
 		if err != nil {
 			log.Printf("FetchAndProcessTunPkt::read ip pkt error: %v", err)
 			return err
@@ -74,8 +72,8 @@ func (a *App) FetchAndProcessTunPkt(workerNum int) error {
 
 		if config.GetInstance().ServerMode {
 			log.Printf("FetchAndProcessTunPkt::receiver tun packet dst address, worker=%d, dst=%s, route_local_addr=%s",
-				workerNum, dst, a.routes[dst].LocalAddr)
-			conn := a.server.GetConnsByAddr(a.routes[dst].LocalAddr)
+				workerNum, dst, this.routes[dst].LocalAddr)
+			conn := this.server.GetConnsByAddr(this.routes[dst].LocalAddr)
 			if conn == nil {
 				log.Printf("FetchAndProcessTunPkt::unknown destination, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
 			} else {
@@ -83,21 +81,12 @@ func (a *App) FetchAndProcessTunPkt(workerNum int) error {
 			}
 		} else {
 			//client send packet
-			a.client.SendPacket(pkt)
+			this.client.SendPacket(pkt)
 		}
 	}
 }
 
-func (a *App) InitClient() error {
-	//For server no need to make connection to client -gs
-	// if a.config.ServerMode == 0 {
-	peer := NewPeer(a)
-	peer.Start()
-	a.client = peer
-	return nil
-}
-
-func (a *App) OnData(buf []byte, conn *net.TCPConn) {
+func (this *App) OnData(buf []byte, conn *net.TCPConn) {
 	ep := protocol.Envelope{}
 	err := proto.Unmarshal(buf, &ep)
 	if err != nil {
@@ -109,25 +98,25 @@ func (a *App) OnData(buf []byte, conn *net.TCPConn) {
 		ping := ep.GetPing()
 		//log.Printf("received ping: %s", ping.String())
 		//根据Client发来的Ping包信息来添加路由
-		a.mutex.Lock()
-		a.routes[ping.GetIP()] = Route{
+		this.mutex.Lock()
+		this.routes[ping.GetIP()] = Route{
 			LocalAddr: ping.GetLocalAddr(),
 			IP:        ping.GetIP(),
 		}
 
 		log.Printf("Proto Ping local=%s, ip=%s", ping.GetLocalAddr(), ping.GetIP())
 
-		a.server.SetConns(a.routes[ping.GetIP()].LocalAddr, conn)
+		this.server.SetConns(this.routes[ping.GetIP()].LocalAddr, conn)
 		if config.GetInstance().Verbose {
-			log.Printf("OnData::routes %s", a.routes)
+			log.Printf("OnData::routes %s", this.routes)
 		}
-		a.mutex.Unlock()
+		this.mutex.Unlock()
 	case *protocol.Envelope_Packet:
 		pkt := iface.PacketIP(ep.GetPacket().GetPayload())
 		if config.GetInstance().Verbose {
 			log.Printf("OnData::received packet: src=%s dst=%s len=%d",
 				pkt.GetSourceIP(), pkt.GetDestinationIP(), len(pkt))
 		}
-		a.iface.Write(pkt)
+		this.iface.Write(pkt)
 	}
 }

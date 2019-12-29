@@ -23,7 +23,7 @@ type ServerConn struct {
 	nonce    []byte
 	buf      []byte
 	aesgcm   cipher.AEAD
-	handler  ServerHandler
+	handler  GrpcHandler
 	reader   *bufio.Reader
 	writeBuf *bytes.Buffer
 
@@ -31,7 +31,7 @@ type ServerConn struct {
 	// chanClose chan bool
 }
 
-func NewServerConn(conn *net.TCPConn, key string, handler ServerHandler) *ServerConn {
+func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler) *ServerConn {
 	return &ServerConn{
 		conn:      conn,
 		key:       key,

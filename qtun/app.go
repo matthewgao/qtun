@@ -72,8 +72,8 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 		}
 
 		if config.GetInstance().ServerMode {
-			log.Printf("FetchAndProcessTunPkt::receiver tun packet dst address, worker=%d, dst=%s, route_local_addr=%s",
-				workerNum, dst, this.routes[dst])
+			// log.Printf("FetchAndProcessTunPkt::receiver tun packet dst address, worker=%d, dst=%s, route_local_addr=%s",
+			// 	workerNum, dst, this.routes[dst])
 
 			for {
 				conns, ok := this.routes[dst]

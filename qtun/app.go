@@ -13,7 +13,7 @@ import (
 )
 
 type App struct {
-	config config.Config
+	config *config.Config
 	client *Peer
 	routes map[string]Route
 	mutex  sync.RWMutex
@@ -21,17 +21,17 @@ type App struct {
 	iface  *iface.Iface
 }
 
-func NewApp(config config.Config) *App {
+func NewApp() *App {
 	return &App{
-		config: config,
+		config: config.GetInstance(),
 		routes: make(map[string]Route),
 	}
 }
 
 func (a *App) Run() error {
-	if a.config.ServerMode == 1 {
-		a.server = transport.NewServer(a.config.Listen, "not_use_private_address", a, a.config.Key)
-		a.server.SetConfig(a.config)
+	if config.GetInstance().ServerMode {
+		a.server = transport.NewServer(a.config.Listen, a, a.config.Key)
+		// a.server.SetConfig(a.config)
 		go a.server.Start()
 	} else {
 		err := a.InitClient()
@@ -58,7 +58,8 @@ func (a *App) StartFetchTunInterface() error {
 }
 
 func (a *App) FetchAndProcessTunPkt(workerNum int) error {
-	pkt := iface.NewPacketIP(a.config.Mtu)
+	mtu := config.GetInstance().Mtu
+	pkt := iface.NewPacketIP(mtu)
 	for {
 		n, err := a.iface.Read(pkt)
 		if err != nil {
@@ -67,11 +68,11 @@ func (a *App) FetchAndProcessTunPkt(workerNum int) error {
 		}
 		src := pkt.GetSourceIP().String()
 		dst := pkt.GetDestinationIP().String()
-		if a.config.Verbose == 1 {
+		if config.GetInstance().Verbose {
 			log.Printf("FetchAndProcessTunPkt::got tun packet: worker=%d, src=%s dst=%s len=%d", workerNum, src, dst, n)
 		}
 
-		if a.config.ServerMode == 1 {
+		if config.GetInstance().ServerMode {
 			log.Printf("FetchAndProcessTunPkt::receiver tun packet dst address, worker=%d, dst=%s, route_local_addr=%s",
 				workerNum, dst, a.routes[dst].LocalAddr)
 			conn := a.server.GetConnsByAddr(a.routes[dst].LocalAddr)
@@ -90,23 +91,11 @@ func (a *App) FetchAndProcessTunPkt(workerNum int) error {
 func (a *App) InitClient() error {
 	//For server no need to make connection to client -gs
 	// if a.config.ServerMode == 0 {
-	peer := NewPeer(a.config, a)
+	peer := NewPeer(a)
 	peer.Start()
 	a.client = peer
 	return nil
 }
-
-// func (a *App) getRoutes() []Route {
-// 	a.mutex.Lock()
-// 	routes := make([]Route, len(a.routes))
-// 	i := 0
-// 	for _, route := range a.routes {
-// 		routes[i] = route
-// 		i++
-// 	}
-// 	a.mutex.Unlock()
-// 	return routes
-// }
 
 func (a *App) OnData(buf []byte, conn *net.TCPConn) {
 	ep := protocol.Envelope{}
@@ -129,13 +118,13 @@ func (a *App) OnData(buf []byte, conn *net.TCPConn) {
 		log.Printf("Proto Ping local=%s, ip=%s", ping.GetLocalAddr(), ping.GetIP())
 
 		a.server.SetConns(a.routes[ping.GetIP()].LocalAddr, conn)
-		if a.config.Verbose == 1 {
+		if config.GetInstance().Verbose {
 			log.Printf("OnData::routes %s", a.routes)
 		}
 		a.mutex.Unlock()
 	case *protocol.Envelope_Packet:
 		pkt := iface.PacketIP(ep.GetPacket().GetPayload())
-		if a.config.Verbose == 1 {
+		if config.GetInstance().Verbose {
 			log.Printf("OnData::received packet: src=%s dst=%s len=%d",
 				pkt.GetSourceIP(), pkt.GetDestinationIP(), len(pkt))
 		}

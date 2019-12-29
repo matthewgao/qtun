@@ -1,30 +1,85 @@
 package main
 
 import (
-	"log"
-	"os"
+	"runtime"
 
-	_ "net/http/pprof"
-
+	"github.com/gookit/color"
+	"github.com/gookit/gcli/v2"
+	"github.com/gookit/gcli/v2/builtin"
 	"github.com/matthewgao/qtun/config"
 	"github.com/matthewgao/qtun/qtun"
-	"github.com/miolini/cliconfig"
-	"github.com/urfave/cli"
 )
 
-func main() {
-	var cfg config.Config
-	app := cli.NewApp()
-	app.Name = "qtun"
-	app.Flags = cliconfig.Fill(&cfg, "QTUN_")
-	app.Action = func(ctx *cli.Context) error {
-		log.Printf("config: %#v", cfg)
-		qtunApp := qtun.NewApp(cfg)
-		return qtunApp.Run()
+type CmdOpts struct {
+	Key              string `default:"hello-world"`
+	RemoteAddrs      string `default:"0.0.0.0:8080"`
+	Listen           string `default:"0.0.0.0:8080"`
+	TransportThreads int    `default:"1"`
+	Ip               string `default:"10.237.0.1/16"`
+	Mtu              int    `default:"1500"`
+	Verbose          bool   `default:"0"`
+	ServerMode       bool   `default:"0"`
+}
+
+// options for the command
+var cmdOpts = CmdOpts{}
+
+// Command command definition
+func Command() *gcli.Command {
+	cmd := &gcli.Command{
+		Func:    command,
+		Name:    "qtun",
+		Aliases: []string{"qt"},
+		UseFor:  "run pic evaluation in batch",
+		Examples: `
+  {$binName} {$cmd} --filename all.data --workernum 20 --cmd "python run.py"`,
 	}
 
-	err := app.Run(os.Args)
-	if err != nil {
-		log.Printf("app run err: %s", err)
-	}
+	cmd.StrOpt(&cmdOpts.Key, "key", "", "hello-world", "encrpyt key")
+	cmd.StrOpt(&cmdOpts.RemoteAddrs, "remote_addrs", "", "2.2.2.2:8080", "remote server address, only for client")
+	cmd.StrOpt(&cmdOpts.Listen, "listen", "", "0.0.0.0:8080", "server listen address, only for server")
+	cmd.StrOpt(&cmdOpts.Ip, "ip", "", "10.237.0.1/16", "vpn vip")
+	cmd.IntOpt(&cmdOpts.TransportThreads, "transport_threads", "", 1, "concurrent threads num only for client")
+	cmd.IntOpt(&cmdOpts.Mtu, "mtu", "", 1500, "MTU size")
+	cmd.BoolOpt(&cmdOpts.Verbose, "verbose", "", false, "verbose")
+	cmd.BoolOpt(&cmdOpts.ServerMode, "server_mode", "", false, "if running in server mode")
+
+	return cmd
+}
+
+// command running
+func command(c *gcli.Command, args []string) error {
+	// magentaln("dump params:")
+	color.Cyan.Printf("%+v\n", cmdOpts)
+
+	config.InitConfig(config.Config{
+		Key:              cmdOpts.Key,
+		RemoteAddrs:      cmdOpts.RemoteAddrs,
+		Listen:           cmdOpts.Listen,
+		TransportThreads: cmdOpts.TransportThreads,
+		Ip:               cmdOpts.Ip,
+		Mtu:              cmdOpts.Mtu,
+		Verbose:          cmdOpts.Verbose,
+		ServerMode:       cmdOpts.ServerMode,
+	})
+
+	qtunApp := qtun.NewApp()
+	return qtunApp.Run()
+}
+
+func Init() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	app := gcli.NewApp()
+	app.Add(builtin.GenAutoCompleteScript())
+	app.Version = "1.0.0"
+	app.Description = "qtun"
+	// app.SetVerbose(gcli.VerbDebug)
+
+	app.Add(Command())
+	app.Run()
+}
+
+func main() {
+	Init()
 }

@@ -16,16 +16,14 @@ import (
 )
 
 type Peer struct {
-	// remoteDC   string
 	remoteAddr string
-	config     config.Config
 	client     *transport.Client
 }
 
-func NewPeer(cfg config.Config, handler transport.ServerHandler) *Peer {
+func NewPeer(handler transport.ServerHandler) *Peer {
+	cfg := config.GetInstance()
 	peer := &Peer{
 		remoteAddr: cfg.RemoteAddrs,
-		config:     cfg,
 		client:     transport.NewClient(cfg.RemoteAddrs, cfg.Key, cfg.TransportThreads),
 	}
 
@@ -52,11 +50,11 @@ func (p *Peer) ping() {
 }
 
 func (p *Peer) GetTunLocalAddrWithPort() string {
-	return fmt.Sprintf("%s:%s", p.config.Ip, p.client.GetRemotePortRandom())
+	return fmt.Sprintf("%s:%s", config.GetInstance().Ip, p.client.GetRemotePortRandom())
 }
 
 func (p *Peer) SendPing() {
-	ip, _, err := net.ParseCIDR(p.config.Ip)
+	ip, _, err := net.ParseCIDR(config.GetInstance().Ip)
 	utils.POE(err)
 	env := &protocol.Envelope{
 		Type: &protocol.Envelope_Ping{
@@ -69,6 +67,7 @@ func (p *Peer) SendPing() {
 			},
 		},
 	}
+
 	data, err := proto.Marshal(env)
 	utils.POE(err)
 	p.client.Write(data)

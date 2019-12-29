@@ -12,25 +12,20 @@ import (
 
 type Server struct {
 	publicAddr string
-	// privateAddr string
-	handler ServerHandler
-	key     string
-	config  config.Config
-
+	handler    ServerHandler
+	key        string
+	// config         config.Config
 	publicListener *net.TCPListener
-	// privateListener *net.TCPListener
-
-	Mtx *sync.Mutex
+	Mtx            *sync.Mutex
 
 	//为了能够删除已经断开的连接，并能够反过来查询连接，所以有两个map
 	Conns        map[string]*ServerConn
 	ConnsReverse map[*net.TCPConn]string
 }
 
-func NewServer(publicAddr, privateAddr string, handler ServerHandler, key string) *Server {
+func NewServer(publicAddr string, handler ServerHandler, key string) *Server {
 	srv := &Server{
-		publicAddr: publicAddr,
-		// privateAddr:  privateAddr,
+		publicAddr:   publicAddr,
 		handler:      handler,
 		key:          key,
 		Conns:        make(map[string]*ServerConn),
@@ -40,16 +35,14 @@ func NewServer(publicAddr, privateAddr string, handler ServerHandler, key string
 	return srv
 }
 
-func (s *Server) SetConfig(cfg config.Config) {
-	s.config = cfg
-}
+// func (s *Server) SetConfig(cfg config.Config) {
+// 	s.config = cfg
+// }
 
 func (s *Server) Start() {
-	if s.config.ServerMode == 1 {
+	if config.GetInstance().ServerMode {
 		go s.processPublic()
 	}
-	//Private is only use to get packet from local
-	// go s.processPrivate()
 }
 
 func (s *Server) processPublic() {

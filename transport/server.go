@@ -95,8 +95,8 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 			log.Printf("Server::Listen::Connections map: %v", s.Conns)
 		})
 
-		s.Conns[remoteAddr] = serverConn
-		s.ConnsReverse[tcpConn] = remoteAddr
+		// s.Conns[remoteAddr] = serverConn
+		// s.ConnsReverse[tcpConn] = remoteAddr
 	}
 }
 

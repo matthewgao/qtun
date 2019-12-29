@@ -1,6 +1,6 @@
 package qtun
 
 type Route struct {
-	IP        string
-	LocalAddr string
+	ClientIP           string
+	ClientAddrWithPort string
 }

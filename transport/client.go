@@ -44,12 +44,30 @@ func (c *Client) Start() {
 		c.wg.Add(1)
 		conn := NewClientConn(c.remoteAddr, c.key, connIndex, &c.wg)
 		conn.SetHander(c.handler)
-		c.conns[connIndex] = conn
 
-		go c.conns[connIndex].run()
-		time.Sleep(time.Millisecond * 1000) // FIXME:
-		go c.conns[connIndex].runRead()
+		go conn.run()
+		time.Sleep(time.Millisecond * 200)
+
+		connected := false
+		for index := 0; index < 10; index++ {
+			if conn.IsConnected() {
+				connected = true
+				break
+			}
+			time.Sleep(time.Millisecond * 500)
+		}
+
+		if connected {
+			c.conns[connIndex] = conn
+			go c.conns[connIndex].runRead()
+		} else {
+			log.Printf("fail to connect to the server after 10 times retry")
+			c.wg.Done()
+		}
 	}
+
+	log.Printf("%d connections has been set", len(c.conns))
+
 	c.mutex.Unlock()
 	go c.ping()
 }

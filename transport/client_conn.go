@@ -278,18 +278,18 @@ func (sc *ClientConn) read() ([]byte, error) {
 	}
 	if secure == 0 {
 		return sc.readBuf[:dataLen], err
-	} else {
-		_, err = io.ReadFull(reader, sc.nonce)
-		if err != nil {
-			return nil, err
-		}
-		plain, err := sc.aesgcm.Open(nil, sc.nonce, sc.readBuf[:dataLen], nil)
-		if err != nil {
-			return nil, err
-		}
-
-		return plain, nil
 	}
+
+	_, err = io.ReadFull(reader, sc.nonce)
+	if err != nil {
+		return nil, err
+	}
+	plain, err := sc.aesgcm.Open(nil, sc.nonce, sc.readBuf[:dataLen], nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return plain, nil
 }
 
 //为了使用 10.4.4.3:port 这样的格式来表示一条tcp连接

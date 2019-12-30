@@ -140,7 +140,7 @@ func (c *Client) ping() {
 	tickerPing := time.NewTicker(time.Second * 2)
 	defer tickerPing.Stop()
 	for range tickerPing.C {
-		c.SendPing()
+		c.SendAllPing()
 	}
 }
 
@@ -148,10 +148,26 @@ func (c *Client) GetTunLocalAddrWithPort() string {
 	return fmt.Sprintf("%s:%s", config.GetInstance().Ip, c.GetRemotePortRandom())
 }
 
-func (c *Client) SendPing() {
+func (c *Client) GetTunLocalAddrWithPortOnConn(conn *ClientConn) string {
+	return fmt.Sprintf("%s:%s", config.GetInstance().Ip, conn.GetConnPort())
+}
+
+func (c *Client) SendAllPing() {
+	for _, v := range c.conns {
+		if v == nil {
+			//FIXME: should delete conn
+			continue
+		}
+
+		c.SendPing(v)
+	}
+}
+
+func (c *Client) SendPing(conn *ClientConn) {
 	ip, _, err := net.ParseCIDR(config.GetInstance().Ip)
 	utils.POE(err)
-	localAddr := c.GetTunLocalAddrWithPort()
+	// localAddr := c.GetTunLocalAddrWithPort()
+	localAddr := c.GetTunLocalAddrWithPortOnConn(conn)
 	env := &protocol.Envelope{
 		Type: &protocol.Envelope_Ping{
 			Ping: &protocol.MessagePing{
@@ -166,7 +182,9 @@ func (c *Client) SendPing() {
 	log.Printf("send ping: %s, %s", localAddr, ip.String())
 	data, err := proto.Marshal(env)
 	utils.POE(err)
-	c.Write(data)
+	// c.Write(data)
+	// c.Write(data)
+	conn.WriteNow(data)
 }
 
 func (c *Client) SendPacket(pkt iface.PacketIP) {

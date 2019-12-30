@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"runtime"
 
 	"github.com/gookit/color"
@@ -8,6 +9,7 @@ import (
 	"github.com/gookit/gcli/v2/builtin"
 	"github.com/matthewgao/qtun/config"
 	"github.com/matthewgao/qtun/qtun"
+	"github.com/matthewgao/qtun/socks5"
 )
 
 type CmdOpts struct {
@@ -19,6 +21,7 @@ type CmdOpts struct {
 	Mtu              int    `default:"1500"`
 	Verbose          bool   `default:"0"`
 	ServerMode       bool   `default:"0"`
+	Socks5Port       int
 }
 
 // options for the command
@@ -41,6 +44,7 @@ func Command() *gcli.Command {
 	cmd.StrOpt(&cmdOpts.Ip, "ip", "", "10.237.0.1/16", "vpn vip")
 	cmd.IntOpt(&cmdOpts.TransportThreads, "transport_threads", "", 1, "concurrent threads num only for client")
 	cmd.IntOpt(&cmdOpts.Mtu, "mtu", "", 1500, "MTU size")
+	cmd.IntOpt(&cmdOpts.Socks5Port, "socks5_port", "", 2080, "socks5 server port")
 	cmd.BoolOpt(&cmdOpts.Verbose, "verbose", "", false, "verbose")
 	cmd.BoolOpt(&cmdOpts.ServerMode, "server_mode", "", false, "if running in server mode")
 
@@ -62,6 +66,8 @@ func command(c *gcli.Command, args []string) error {
 		Verbose:          cmdOpts.Verbose,
 		ServerMode:       cmdOpts.ServerMode,
 	})
+
+	go socks5.StartSocks5(fmt.Sprintf("%d", cmdOpts.Socks5Port))
 
 	qtunApp := qtun.NewApp()
 	return qtunApp.Run()

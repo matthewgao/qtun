@@ -186,6 +186,7 @@ func (c *Client) SendPing(conn *ClientConn) {
 			},
 		},
 	}
+
 	log.Printf("send ping: %s, %s", localAddr, ip.String())
 	data, err := proto.Marshal(env)
 	utils.POE(err)

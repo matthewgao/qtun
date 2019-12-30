@@ -1,7 +1,6 @@
 package qtun
 
 import (
-	"log"
 	"math/rand"
 	"net"
 	"sync"
@@ -11,6 +10,7 @@ import (
 	"github.com/matthewgao/qtun/iface"
 	"github.com/matthewgao/qtun/protocol"
 	"github.com/matthewgao/qtun/transport"
+	"github.com/rs/zerolog/log"
 )
 
 type App struct {
@@ -62,14 +62,18 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 	for {
 		n, err := this.iface.Read(pkt)
 		if err != nil {
-			log.Printf("FetchAndProcessTunPkt::read ip pkt error: %v", err)
+			// log.Printf("FetchAndProcessTunPkt::read ip pkt error: %v", err)
+			log.Error().Err(err).
+				Msg("FetchAndProcessTunPkt::read ip pkt error")
+
 			return err
 		}
 		src := pkt.GetSourceIP().String()
 		dst := pkt.GetDestinationIP().String()
-		if config.GetInstance().Verbose {
-			log.Printf("FetchAndProcessTunPkt::got tun packet: worker=%d, src=%s dst=%s len=%d", workerNum, src, dst, n)
-		}
+
+		log.Debug().Int("workder", workerNum).Str("src", src).
+			Str("dst", dst).Int("len", n).
+			Msg("FetchAndProcessTunPkt::got tun packet")
 
 		if config.GetInstance().ServerMode {
 			// log.Printf("FetchAndProcessTunPkt::receiver tun packet dst address, worker=%d, dst=%s, route_local_addr=%s",
@@ -78,7 +82,10 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 			for {
 				conns, ok := this.routes[dst]
 				if !ok {
-					log.Printf("FetchAndProcessTunPkt::no route, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
+					// log.Printf("FetchAndProcessTunPkt::no route, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
+					log.Info().Int("workder", workerNum).Str("src", src).
+						Str("dst", dst).
+						Msg("FetchAndProcessTunPkt::no route, packet dropped")
 					break
 				}
 
@@ -88,7 +95,10 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 				}
 
 				if len(keys) == 0 {
-					log.Printf("FetchAndProcessTunPkt::no conns, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
+					// log.Printf("FetchAndProcessTunPkt::no conns, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
+					log.Info().Int("workder", workerNum).Str("src", src).
+						Str("dst", dst).
+						Msg("FetchAndProcessTunPkt::no conns, packet dropped")
 					break
 				}
 
@@ -96,7 +106,10 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 
 				conn := this.server.GetConnsByAddr(keys[idx])
 				if conn == nil {
-					log.Printf("FetchAndProcessTunPkt::no connection, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
+					// log.Printf("FetchAndProcessTunPkt::no connection, packet dropped  worker=%d, src=%s,dst=%s", workerNum, src, dst)
+					log.Info().Int("workder", workerNum).Str("src", src).
+						Str("dst", dst).
+						Msg("FetchAndProcessTunPkt::no connection, packet dropped")
 					delete(conns, keys[idx])
 					this.routes[dst] = conns
 				} else {
@@ -115,7 +128,9 @@ func (this *App) OnData(buf []byte, conn *net.TCPConn) {
 	ep := protocol.Envelope{}
 	err := proto.Unmarshal(buf, &ep)
 	if err != nil {
-		log.Printf("OnData::proto unmarshal err: %s", err)
+		// log.Printf("OnData::proto unmarshal err: %s", err)
+		log.Error().Err(err).
+			Msg("OnData::proto unmarshal err")
 		return
 	}
 	switch ep.Type.(type) {
@@ -138,20 +153,30 @@ func (this *App) OnData(buf []byte, conn *net.TCPConn) {
 		// 	ClientIP:           ping.GetIP(),
 		// }
 
-		log.Printf("Proto Ping local=%s, ip=%s", ping.GetLocalAddr(), ping.GetIP())
-		log.Printf("route=%v", this.routes)
+		// log.Printf("Proto Ping local=%s, ip=%s", ping.GetLocalAddr(), ping.GetIP())
+
+		log.Info().Str("local", ping.GetLocalAddr()).
+			Str("ip", ping.GetIP()).
+			Msg("Proto Ping")
+
+		// log.Printf("route=%v", this.routes)
+
+		log.Info().Interface("route", this.routes).
+			Msg("Route Table")
 
 		this.server.SetConns(ping.GetLocalAddr(), conn)
-		if config.GetInstance().Verbose {
-			log.Printf("OnData::routes %s", this.routes)
-		}
 		this.mutex.Unlock()
 	case *protocol.Envelope_Packet:
 		pkt := iface.PacketIP(ep.GetPacket().GetPayload())
-		if config.GetInstance().Verbose {
-			log.Printf("OnData::received packet: src=%s dst=%s len=%d",
-				pkt.GetSourceIP(), pkt.GetDestinationIP(), len(pkt))
-		}
+		// if config.GetInstance().Verbose {
+		// 	log.Printf("OnData::received packet: src=%s dst=%s len=%d",
+		// 		pkt.GetSourceIP(), pkt.GetDestinationIP(), len(pkt))
+		// }
+
+		log.Debug().Int("pkt_len", len(pkt)).IPAddr("src", pkt.GetSourceIP()).
+			IPAddr("dst", pkt.GetDestinationIP()).
+			Msg("OnData::received packet")
+
 		this.iface.Write(pkt)
 	}
 }

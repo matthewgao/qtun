@@ -69,7 +69,14 @@ func (c *Client) Start() {
 	log.Printf("%d connections has been set", len(c.conns))
 
 	c.mutex.Unlock()
-	go c.ping()
+	// go c.ping()
+	go func() {
+		for {
+			c.ping()
+			time.Sleep(time.Second)
+			log.Printf("ping exit restart conn_len %d", len(c.conns))
+		}
+	}()
 }
 
 func (c *Client) Stop() {

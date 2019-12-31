@@ -8,13 +8,14 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
+	// "log"
 	"net"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/matthewgao/qtun/iface"
 	"github.com/matthewgao/qtun/protocol"
 	"github.com/matthewgao/qtun/utils"
+	"github.com/rs/zerolog/log"
 )
 
 type ServerConn struct {
@@ -47,7 +48,9 @@ func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler) *ServerCo
 func (sc *ServerConn) run(cleanup func()) {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("ServerConn::run::conn run err: %s", err)
+			// log.Printf("ServerConn::run::conn run err: %s", err)
+			log.Error().Interface("err", err).
+				Msg("ServerConn::run conn run fail")
 		}
 		cleanup()
 		sc.conn.Close()
@@ -64,21 +67,24 @@ func (sc *ServerConn) run(cleanup func()) {
 	for {
 		data, err := sc.read()
 		if err != nil {
-			log.Printf("ServerConn::run::conn read err: %s", err)
+			// log.Printf("ServerConn::run::conn read err: %s", err)
+			log.Error().Err(err).Msg("ServerConn::run conn read fail")
 			return
 		}
 
 		if sc.handler != nil {
 			sc.handler.OnData(data, sc.conn)
 		} else {
-			log.Printf("ServerConn:: sever_conn is nil")
+			// log.Printf("ServerConn:: sever_conn is nil")
+			log.Warn().Msg("ServerConn::run sever_conn is nil")
 		}
 	}
 }
 
 func (sc *ServerConn) crypto() error {
 	if sc.key == "" {
-		log.Printf("incoming encryption disabled for %s", sc.conn.RemoteAddr())
+		// log.Printf("incoming encryption disabled for %s", sc.conn.RemoteAddr())
+		log.Warn().Str("client_addr", sc.conn.RemoteAddr().String()).Msg("incoming encryption disabled")
 		return nil
 	}
 	var err error
@@ -193,20 +199,26 @@ func (cc *ServerConn) ProcessWrite() (err error) {
 			err = fmt.Errorf("server process write panic: %s", perr)
 		}
 		cc.conn.Close()
-		log.Printf("ServerConn::ProcessWrite::conn closed")
+		// log.Printf("ServerConn::ProcessWrite::conn closed")
+		log.Warn().Str("client_addr", cc.conn.RemoteAddr().String()).Msg("ServerConn::ProcessWrite conn closedd")
 	}()
-	log.Printf("ServerConn::ProcessWrite::Start conn_ptr=%v", cc.conn)
+
+	log.Info().Str("client_addr", cc.conn.RemoteAddr().String()).Msg("ServerConn::ProcessWrite Start")
+	// log.Printf("ServerConn::ProcessWrite::Start conn_ptr=%v", cc.conn)
 	for {
 		select {
 		case buf := <-cc.chanWrite:
 			// log.Printf("server conn write buf")
 			err = cc.write(buf)
 		}
+
 		if err != nil {
-			log.Printf("ServerConn::ProcessWrite::End err=%v", err)
+			// log.Printf("ServerConn::ProcessWrite::End err=%v", err)
+			log.Warn().Err(err).Str("client_addr", cc.conn.RemoteAddr().String()).Msg("ServerConn::ProcessWrite End with error")
 			return err
 		}
 	}
-	log.Printf("ServerConn::ProcessWrite::End conn_ptr=%v", cc.conn)
+	// log.Printf("ServerConn::ProcessWrite::End conn_ptr=%v", cc.conn)
+	// log.Info().Str("client_addr", cc.conn.RemoteAddr().String()).Msg("ServerConn::ProcessWrite End")
 	return err
 }

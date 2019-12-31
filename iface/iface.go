@@ -2,13 +2,14 @@ package iface
 
 import (
 	"fmt"
-	"log"
+	// "log"
 	"net"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
 
+	"github.com/rs/zerolog/log"
 	"github.com/songgao/water"
 )
 
@@ -41,7 +42,10 @@ func (i *Iface) Start() error {
 		return err
 	}
 
-	log.Printf("tun interface name: %s", i.ifce.Name())
+	// log.Printf("tun interface name: %s", i.ifce.Name())
+	log.Info().Str("tun_name", i.ifce.Name()).
+		Msg("tun interface")
+
 	mask := netIP.Mask
 	netmask := fmt.Sprintf("%d.%d.%d.%d", mask[0], mask[1], mask[2], mask[3])
 	var cmd *exec.Cmd
@@ -57,7 +61,11 @@ func (i *Iface) Start() error {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("run ifconfig fail: %v, %s", err, string(output))
+		// log.Printf("run ifconfig fail: %v, %s", err, string(output))
+
+		log.Error().Err(err).Str("cmd_output", string(output)).
+			Msg("run ifconfig fail")
+
 		return fmt.Errorf("err: %s %s", err, string(output))
 	}
 
@@ -72,12 +80,17 @@ func (i *Iface) AddSysRoute(ip *net.IP) {
 	ipdot := strings.Split(ip.String(), ".")
 	subnet := strings.Join(ipdot[:len(ipdot)-1], ".") + ".0"
 	// log.Printf(subnet)
+	log.Debug().Str("subnet", subnet).
+		Msg("subnet")
+
 	cmd := exec.Command("route", "add", "-net",
 		subnet, ip.String())
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("add system route fail: %v, %s", err, string(output))
+		// log.Printf("add system route fail: %v, %s", err, string(output))
+		log.Error().Err(err).Str("cmd_output", string(output)).
+			Msg("add system route fail")
 		panic(fmt.Sprintf("err: %s %s", err, string(output)))
 	}
 }

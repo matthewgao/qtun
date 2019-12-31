@@ -2,7 +2,7 @@ package transport
 
 import (
 	"fmt"
-	"log"
+	// "log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -14,6 +14,7 @@ import (
 	"github.com/matthewgao/qtun/utils"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/rs/zerolog/log"
 )
 
 type Client struct {
@@ -61,12 +62,19 @@ func (c *Client) Start() {
 			c.conns[connIndex] = conn
 			go c.conns[connIndex].runRead()
 		} else {
-			log.Printf("fail to connect to the server after 10 times retry")
+			// log.Printf("fail to connect to the server after 10 times retry")
+
+			log.Warn().Str("server_addr", c.remoteAddr).
+				Msg("fail to connect to the server after 10 times retry")
+
 			c.wg.Done()
 		}
 	}
 
-	log.Printf("%d connections has been set", len(c.conns))
+	// log.Printf("%d connections has been set", len(c.conns))
+
+	log.Info().Str("server_addr", c.remoteAddr).Int("conn_num", len(c.conns)).
+		Msg("connections has been establlished")
 
 	c.mutex.Unlock()
 	// go c.ping()
@@ -74,13 +82,17 @@ func (c *Client) Start() {
 		for {
 			c.ping()
 			time.Sleep(time.Second)
-			log.Printf("ping exit restart conn_len %d", len(c.conns))
+			// log.Printf("ping exit restart conn_len %d", len(c.conns))
+			log.Warn().Str("server_addr", c.remoteAddr).Int("conn_num", len(c.conns)).
+				Msg("client ping exit, restart")
 		}
 	}()
 }
 
 func (c *Client) Stop() {
-	defer log.Printf("client stopped")
+	defer log.Info().Str("server_addr", c.remoteAddr).Int("conn_num", len(c.conns)).
+		Msg("client stop")
+
 	c.mutex.RLock()
 	for _, conn := range c.conns {
 		conn.Close()
@@ -141,7 +153,9 @@ func (c *Client) GetRemotePortRandom() string {
 func (c *Client) ping() {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("peer ping panic: %s", err)
+			// log.Printf("peer ping panic: %s", err)
+			log.Error().Interface("err", err).Str("server_addr", c.remoteAddr).Int("conn_num", len(c.conns)).
+				Msg("peer ping panic")
 		}
 	}()
 	tickerPing := time.NewTicker(time.Second * 2)
@@ -187,7 +201,10 @@ func (c *Client) SendPing(conn *ClientConn) {
 		},
 	}
 
-	log.Printf("send ping: %s, %s", localAddr, ip.String())
+	// log.Printf("send ping: %s, %s", localAddr, ip.String())
+
+	log.Info().Str("local_addr", localAddr).Int("conn_num", len(c.conns)).IPAddr("client_vip", ip).
+		Msg("send ping")
 	data, err := proto.Marshal(env)
 	utils.POE(err)
 	// c.Write(data)

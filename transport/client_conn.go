@@ -8,13 +8,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/matthewgao/qtun/utils"
+	"github.com/rs/zerolog/log"
 )
 
 var nilBuf = make([]byte, 0)
@@ -83,7 +83,11 @@ func (this *ClientConn) tryConnect() error {
 
 func (this *ClientConn) crypto() (err error) {
 	if this.key == "" {
-		log.Printf("outgoing encryption disabled for %s", this.remoteAddr)
+		// log.Printf("outgoing encryption disabled for %s", this.remoteAddr)
+
+		log.Info().Str("server_addr", this.remoteAddr).
+			Msg("outgoing encryption disabled")
+
 		return nil
 	}
 	this.aesgcm, err = makeAES128GCM(this.key)
@@ -93,7 +97,9 @@ func (this *ClientConn) crypto() (err error) {
 func (this *ClientConn) run() {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("transport thread %d addr %s panic: %s", this.index, this.remoteAddr, err)
+			// log.Printf("transport thread %d addr %s panic: %s", this.index, this.remoteAddr, err)
+			log.Error().Interface("err", err).Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
+				Msg("client connection thread panic")
 		}
 		this.wg.Done()
 	}()
@@ -109,19 +115,25 @@ func (this *ClientConn) run() {
 		}
 		err := this.tryConnect()
 		if err != nil {
-			log.Printf("transport thread %d addr %s connect err: %s", this.index, this.remoteAddr, err)
+			// log.Printf("transport thread %d addr %s connect err: %s", this.index, this.remoteAddr, err)
+			log.Error().Err(err).Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
+				Msg("connect server fail")
 			time.Sleep(time.Millisecond * 1000)
 		} else {
+			// if err == nil {
+			go this.runRead()
+			err = this.process()
 			if err == nil {
-				go this.runRead()
-				err = this.process()
-				if err == nil {
-					break
-				}
+				log.Error().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
+					Msg("client exit from process ")
+				break
 			}
-			if err != nil {
-				log.Printf("client err: %s", err)
-			}
+			// }
+			// if err != nil {
+			// 	log.Printf("client err: %s", err)
+			// 	log.Error().Err(err).Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
+			// 		Msg("client ")
+			// }
 		}
 	}
 }
@@ -147,10 +159,17 @@ func (this *ClientConn) process() (err error) {
 		}
 		this.setConnected(false)
 		this.conn.Close()
-		log.Printf("client conn closed")
+		// log.Printf("client conn closed")
+		log.Error().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
+			Msg("client conn closed")
+
 	}()
 	this.setConnected(true)
-	log.Printf("connection good to %s : %d", this.remoteAddr, this.index)
+	// log.Printf("connection good to %s : %d", this.remoteAddr, this.index)
+
+	log.Info().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
+		Msg("success connect to server")
+
 	pingTicker := time.NewTicker(time.Second * 1)
 	defer pingTicker.Stop()
 	for {
@@ -229,7 +248,9 @@ func (this *ClientConn) WriteNow(data []byte) error {
 func (sc *ClientConn) runRead() {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("ClientConn::runRead::painc::conn run err: %s", err)
+			// log.Printf("ClientConn::runRead::painc::conn run err: %s", err)
+			log.Error().Interface("err", err).Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
+				Msg("ClientConn::runRead painc")
 		}
 		if sc.conn != nil {
 			sc.conn.Close()
@@ -247,14 +268,19 @@ func (sc *ClientConn) runRead() {
 	for {
 		data, err := sc.read()
 		if err != nil {
-			log.Printf("ClientConn::runRead:conn read err: %s", err)
+			// log.Printf("ClientConn::runRead:conn read err: %s", err)
+			log.Error().Err(err).Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
+				Msg("ClientConn::runRead conn read fail")
 			return
 		}
 
 		if sc.handler != nil {
 			sc.handler.OnData(data, sc.conn)
 		} else {
-			log.Printf("ClientConn::runRead:handler is null")
+			// log.Printf("ClientConn::runRead:handler is null")
+
+			log.Error().Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
+				Msg("ClientConn::runRead handler is null")
 		}
 	}
 }

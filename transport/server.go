@@ -2,35 +2,30 @@ package transport
 
 import (
 	"fmt"
-	"log"
+	// "log"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/matthewgao/qtun/config"
+	"github.com/rs/zerolog/log"
 )
 
 type Server struct {
-	publicAddr string
-	// privateAddr string
-	handler ServerHandler
-	key     string
-	config  config.Config
-
+	publicAddr     string
+	handler        GrpcHandler
+	key            string
 	publicListener *net.TCPListener
-	// privateListener *net.TCPListener
-
-	Mtx *sync.Mutex
+	Mtx            *sync.Mutex
 
 	//为了能够删除已经断开的连接，并能够反过来查询连接，所以有两个map
 	Conns        map[string]*ServerConn
 	ConnsReverse map[*net.TCPConn]string
 }
 
-func NewServer(publicAddr, privateAddr string, handler ServerHandler, key string) *Server {
+func NewServer(publicAddr string, handler GrpcHandler, key string) *Server {
 	srv := &Server{
-		publicAddr: publicAddr,
-		// privateAddr:  privateAddr,
+		publicAddr:   publicAddr,
 		handler:      handler,
 		key:          key,
 		Conns:        make(map[string]*ServerConn),
@@ -40,67 +35,41 @@ func NewServer(publicAddr, privateAddr string, handler ServerHandler, key string
 	return srv
 }
 
-func (s *Server) SetConfig(cfg config.Config) {
-	s.config = cfg
-}
-
 func (s *Server) Start() {
-	if s.config.ServerMode == 1 {
-		go s.processPublic()
+	if config.GetInstance().ServerMode {
+		go s.StartListen()
 	}
-	//Private is only use to get packet from local
-	// go s.processPrivate()
 }
 
-func (s *Server) processPublic() {
+func (s *Server) StartListen() {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("public server panic: %s", err)
+			log.Error().Interface("err", err).
+				Msg("server listen panic")
 		}
-		log.Printf("public server closed")
+
+		log.Info().Str("addr", s.publicAddr).Msg("server listen exit, server closed")
 	}()
 	for {
 		tcpAddr, err := net.ResolveTCPAddr("tcp", s.publicAddr)
 		if err != nil {
-			log.Printf("net resolve tcp addr err: %s", err)
+			log.Error().Err(err).Str("addr", s.publicAddr).Msg("net resolve tcp addr fail")
 			time.Sleep(time.Second * 5)
 			continue
 		}
 		err = s.listen(tcpAddr)
 		if err != nil {
-			log.Printf("server listen err: %s", err)
+			log.Error().Err(err).Str("addr", s.publicAddr).Msg("server listen fail")
 		}
-		time.Sleep(time.Millisecond * 1000)
+		time.Sleep(time.Second)
 	}
 }
 
-// func (s *Server) processPrivate() {
-// 	defer func() {
-// 		if err := recover(); err != nil {
-// 			log.Printf("private server panic: %s", err)
-// 		}
-// 		log.Printf("private server closed")
-// 	}()
-// 	for {
-// 		tcpAddr, err := net.ResolveTCPAddr("tcp", s.privateAddr)
-// 		if err != nil {
-// 			log.Printf("net resolve tcp addr err: %s", err)
-// 			time.Sleep(time.Second * 5)
-// 			continue
-// 		}
-
-// 		err = s.listen(tcpAddr)
-// 		if err != nil {
-// 			log.Printf("server listen err: %s", err)
-// 		}
-// 		time.Sleep(time.Millisecond * 1000)
-// 	}
-// }
-
 func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 	defer func() {
-		log.Printf("Server::Listen::server listener closed")
+		log.Info().Str("addr", s.publicAddr).Msg("server listener closed")
 	}()
+
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	if err != nil {
 		return fmt.Errorf("Server::Listen::net listen tcp err: %s", err)
@@ -112,21 +81,22 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 				continue
 			}
-			return fmt.Errorf("server accept err: %s", err)
+
+			log.Warn().Err(err).Str("addr", s.publicAddr).Msg("server accept fail")
+			continue
 		}
 
-		log.Printf("Server::Listen::new accept from %s", tcpConn.RemoteAddr())
-		serverConn := NewServerConn(tcpConn, s.key, s.handler)
-		//FIXME:have to control only one can connect to this now
-		remoteAddr := tcpConn.RemoteAddr().String()
-		log.Printf("Server::Listen::add to conn map, %s", remoteAddr)
-		// log.Printf("dump conn map, %v", s.Conns)
+		log.Info().Str("from", tcpConn.RemoteAddr().String()).Msg("server new accept")
 
+		serverConn := NewServerConn(tcpConn, s.key, s.handler)
+		log.Info().Str("from", tcpConn.RemoteAddr().String()).Msg("server start to read from connection")
+
+		//start to read pkt from connection
 		go serverConn.run(func() {
 			s.RemoveConnByConnPointer(serverConn.conn)
-			log.Printf("Server::Listen::Connections map: %v", s.Conns)
+			log.Warn().Str("from", serverConn.conn.RemoteAddr().String()).
+				Interface("alive_conns", s.Conns).Msg("server read thread exit")
 		})
-
 	}
 }
 
@@ -142,11 +112,20 @@ func (s *Server) GetConnsByAddr(dst string) *ServerConn {
 func (s *Server) SetConns(dst string, conn *net.TCPConn) {
 	s.Mtx.Lock()
 	defer s.Mtx.Unlock()
-	if _, ok := s.Conns[dst]; !ok {
-		s.Conns[dst] = NewServerConn(conn, s.key, s.handler)
+	if v, ok := s.Conns[dst]; !ok {
+		if conn == nil {
+			return
+		}
+
+		serverConn := NewServerConn(conn, s.key, s.handler)
 		//Urgly 应该保证连接只run一下，只为了writebuf里面的内容可以正确的被处理，现在run了两次, 应该把读和写都统一在一个对象里管理
-		go s.Conns[dst].ProcessWrite()
+		go serverConn.ProcessWrite()
+		s.Conns[dst] = serverConn
 		s.ConnsReverse[conn] = dst
+	} else {
+		if v.conn == nil {
+			delete(s.Conns, dst)
+		}
 	}
 }
 

@@ -8,13 +8,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/matthewgao/qtun/utils"
+	"github.com/rs/zerolog/log"
 )
 
 var nilBuf = make([]byte, 0)
@@ -34,7 +34,7 @@ type ClientConn struct {
 	nonce      []byte
 	buf        *bytes.Buffer
 	readBuf    []byte
-	handler    ServerHandler
+	handler    GrpcHandler
 	reader     *bufio.Reader
 }
 
@@ -52,115 +52,125 @@ func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup) 
 	}
 }
 
-func (cc *ClientConn) SetHander(handler ServerHandler) {
-	cc.handler = handler
+func (this *ClientConn) SetHander(handler GrpcHandler) {
+	this.handler = handler
 }
 
-func (cc *ClientConn) IsConnected() bool {
-	cc.mutex.RLock()
-	connected := cc.connected
-	cc.mutex.RUnlock()
+func (this *ClientConn) IsConnected() bool {
+	this.mutex.RLock()
+	connected := this.connected
+	this.mutex.RUnlock()
 	return connected
 }
 
-func (cc *ClientConn) tryConnect() error {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", cc.remoteAddr)
+func (this *ClientConn) tryConnect() error {
+	tcpAddr, err := net.ResolveTCPAddr("tcp", this.remoteAddr)
 	if err != nil {
 		return err
 	}
 
-	cc.conn, err = net.DialTCP("tcp", nil, tcpAddr)
+	this.conn, err = net.DialTCP("tcp", nil, tcpAddr)
 	if err != nil {
 		return err
 	}
 
-	cc.conn.SetReadBuffer(1024 * 1024)
-	cc.conn.SetWriteBuffer(1024 * 1024)
-	cc.conn.SetNoDelay(true)
+	this.conn.SetReadBuffer(1024 * 1024)
+	this.conn.SetWriteBuffer(1024 * 1024)
+	this.conn.SetNoDelay(true)
 
 	return nil
 }
 
-func (cc *ClientConn) crypto() (err error) {
-	if cc.key == "" {
-		log.Printf("outgoing encryption disabled for %s", cc.remoteAddr)
+func (this *ClientConn) crypto() (err error) {
+	if this.key == "" {
+		log.Info().Str("server_addr", this.remoteAddr).
+			Msg("outgoing encryption disabled")
 		return nil
 	}
-	cc.aesgcm, err = makeAES128GCM(cc.key)
+
+	this.aesgcm, err = makeAES128GCM(this.key)
 	return
 }
 
-func (cc *ClientConn) run() {
+func (this *ClientConn) run() {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("transport thread %d addr %s panic: %s", cc.index, cc.remoteAddr, err)
+			log.Error().Interface("err", err).Int("thread_index", this.index).
+				Str("server_addr", this.remoteAddr).
+				Msg("client connection thread panic")
 		}
-		cc.wg.Done()
+		this.wg.Done()
 	}()
-	cc.wg.Add(1)
-	var err error
-	err = cc.crypto()
+
+	this.wg.Add(1)
+	err := this.crypto()
 	utils.POE(err)
 	for {
 		select {
-		case <-cc.chanClose:
+		case <-this.chanClose:
 			return
 		default:
 		}
-		err := cc.tryConnect()
+
+		err := this.tryConnect()
 		if err != nil {
-			log.Printf("transport thread %d addr %s connect err: %s", cc.index, cc.remoteAddr, err)
+			log.Error().Err(err).Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
+				Msg("connect server fail")
 			time.Sleep(time.Millisecond * 1000)
 		} else {
+			go this.runRead()
+			err = this.process()
 			if err == nil {
-				go cc.runRead()
-				err = cc.process()
-				if err == nil {
-					break
-				}
-			}
-			if err != nil {
-				log.Printf("client err: %s", err)
+				log.Error().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
+					Msg("client exit from process ")
+				break
 			}
 		}
 	}
 }
 
-func (cc *ClientConn) Close() {
-	cc.chanClose <- true
-	cc.wg.Wait()
-	if cc.parentWG != nil {
-		cc.parentWG.Done()
+func (this *ClientConn) Close() {
+	this.chanClose <- true
+	this.wg.Wait()
+	if this.parentWG != nil {
+		this.parentWG.Done()
 	}
 }
 
-func (cc *ClientConn) setConnected(value bool) {
-	cc.mutex.Lock()
-	cc.connected = value
-	cc.mutex.Unlock()
+func (this *ClientConn) setConnected(value bool) {
+	this.mutex.Lock()
+	this.connected = value
+	this.mutex.Unlock()
 }
 
-func (cc *ClientConn) process() (err error) {
+func (this *ClientConn) process() (err error) {
 	defer func() {
 		if perr := recover(); perr != nil {
 			err = fmt.Errorf("client process panic: %s", perr)
 		}
-		cc.setConnected(false)
-		cc.conn.Close()
-		log.Printf("client conn closed")
+
+		this.setConnected(false)
+		this.conn.Close()
+
+		log.Error().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
+			Msg("client conn closed")
+
 	}()
-	cc.setConnected(true)
-	log.Printf("connection good to %s : %d", cc.remoteAddr, cc.index)
+	this.setConnected(true)
+
+	log.Info().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
+		Msg("success connect to server")
+
 	pingTicker := time.NewTicker(time.Second * 1)
 	defer pingTicker.Stop()
 	for {
 		select {
-		case <-cc.chanClose:
+		case <-this.chanClose:
 			return nil
 		case <-pingTicker.C:
-			err = cc.write(nilBuf)
-		case buf := <-cc.chanWrite:
-			err = cc.write(buf)
+			err = this.write(nilBuf)
+		case buf := <-this.chanWrite:
+			err = this.write(buf)
 		}
 		if err != nil {
 			return err
@@ -168,70 +178,74 @@ func (cc *ClientConn) process() (err error) {
 	}
 }
 
-func (cc *ClientConn) write(data []byte) error {
-	if cc.conn == nil {
+func (this *ClientConn) write(data []byte) error {
+	if this.conn == nil {
 		return fmt.Errorf("no connection")
 	}
 	var err error
-	cc.buf.Reset()
+	this.buf.Reset()
 	var secure uint8 = 0
-	if cc.aesgcm != nil {
+	if this.aesgcm != nil {
 		secure = 1
 	}
-	err = binary.Write(cc.buf, binary.LittleEndian, &secure)
+	err = binary.Write(this.buf, binary.LittleEndian, &secure)
 	if err != nil {
 		return err
 	}
 	if secure == 0 {
 		dataLen := uint16(len(data))
-		err = binary.Write(cc.buf, binary.LittleEndian, &dataLen)
+		err = binary.Write(this.buf, binary.LittleEndian, &dataLen)
 		if err != nil {
 			return err
 		}
-		_, err = cc.buf.Write(data)
+		_, err = this.buf.Write(data)
 		if err != nil {
 			return err
 		}
 	} else {
-		_, err = io.ReadFull(crand.Reader, cc.nonce)
+		_, err = io.ReadFull(crand.Reader, this.nonce)
 		if err != nil {
 			return err
 		}
-		data2 := cc.aesgcm.Seal(nil, cc.nonce, data, nil)
+		data2 := this.aesgcm.Seal(nil, this.nonce, data, nil)
 		dataLen := uint16(len(data2))
-		err = binary.Write(cc.buf, binary.LittleEndian, &dataLen)
+		err = binary.Write(this.buf, binary.LittleEndian, &dataLen)
 		if err != nil {
 			return err
 		}
-		_, err = cc.buf.Write(data2)
+		_, err = this.buf.Write(data2)
 		if err != nil {
 			return err
 		}
-		_, err = cc.buf.Write(cc.nonce)
+		_, err = this.buf.Write(this.nonce)
 		if err != nil {
 			return err
 		}
 	}
 	if err == nil {
-		_, err = cc.buf.WriteTo(cc.conn)
+		_, err = this.buf.WriteTo(this.conn)
 	}
 	return err
 }
 
-func (cc *ClientConn) Write(data []byte) {
-	cc.chanWrite <- data
+func (this *ClientConn) Write(data []byte) {
+	this.chanWrite <- data
 }
 
-func (cc *ClientConn) WriteNow(data []byte) error {
-	return cc.write(data)
+func (this *ClientConn) WriteNow(data []byte) error {
+	return this.write(data)
 }
 
 func (sc *ClientConn) runRead() {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("ClientConn::runRead::painc::conn run err: %s", err)
+			log.Error().Interface("err", err).Int("thread_index", sc.index).
+				Str("server_addr", sc.remoteAddr).
+				Msg("ClientConn::runRead painc")
 		}
-		sc.conn.Close()
+		if sc.conn != nil {
+			sc.conn.Close()
+		}
 	}()
 	var err error
 	err = sc.crypto()
@@ -245,11 +259,16 @@ func (sc *ClientConn) runRead() {
 	for {
 		data, err := sc.read()
 		if err != nil {
-			log.Printf("ClientConn::runRead:conn read err: %s", err)
+			log.Error().Err(err).Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
+				Msg("ClientConn::runRead conn read fail")
 			return
 		}
+
 		if sc.handler != nil {
 			sc.handler.OnData(data, sc.conn)
+		} else {
+			log.Error().Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
+				Msg("ClientConn::runRead handler is null")
 		}
 	}
 }
@@ -273,18 +292,18 @@ func (sc *ClientConn) read() ([]byte, error) {
 	}
 	if secure == 0 {
 		return sc.readBuf[:dataLen], err
-	} else {
-		_, err = io.ReadFull(reader, sc.nonce)
-		if err != nil {
-			return nil, err
-		}
-		plain, err := sc.aesgcm.Open(nil, sc.nonce, sc.readBuf[:dataLen], nil)
-		if err != nil {
-			return nil, err
-		}
-
-		return plain, nil
 	}
+
+	_, err = io.ReadFull(reader, sc.nonce)
+	if err != nil {
+		return nil, err
+	}
+	plain, err := sc.aesgcm.Open(nil, sc.nonce, sc.readBuf[:dataLen], nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return plain, nil
 }
 
 //为了使用 10.4.4.3:port 这样的格式来表示一条tcp连接

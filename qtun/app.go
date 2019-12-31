@@ -1,7 +1,7 @@
 package qtun
 
 import (
-	"log"
+	"math/rand"
 	"net"
 	"sync"
 
@@ -10,133 +10,146 @@ import (
 	"github.com/matthewgao/qtun/iface"
 	"github.com/matthewgao/qtun/protocol"
 	"github.com/matthewgao/qtun/transport"
+	"github.com/rs/zerolog/log"
 )
 
 type App struct {
-	config config.Config
-	client *Peer
-	routes map[string]Route
+	config *config.Config
+	client *transport.Client
+	routes map[string]map[string]struct{}
 	mutex  sync.RWMutex
 	server *transport.Server
 	iface  *iface.Iface
 }
 
-func NewApp(config config.Config) *App {
+func NewApp() *App {
 	return &App{
-		config: config,
-		routes: make(map[string]Route),
+		config: config.GetInstance(),
+		routes: make(map[string]map[string]struct{}),
 	}
 }
 
-func (a *App) Run() error {
-	if a.config.ServerMode == 1 {
-		a.server = transport.NewServer(a.config.Listen, "not_use_private_address", a, a.config.Key)
-		a.server.SetConfig(a.config)
-		go a.server.Start()
+func (this *App) Run() error {
+	if config.GetInstance().ServerMode {
+		this.server = transport.NewServer(this.config.Listen, this, this.config.Key)
+		go this.server.Start()
 	} else {
-		err := a.InitClient()
-		if err != nil {
-			return err
-		}
+		this.client = transport.NewClient(this.config.RemoteAddrs, this.config.Key, this.config.TransportThreads, this)
+		this.client.Start()
 	}
 
-	return a.StartFetchTunInterface()
+	return this.StartFetchTunInterface()
 }
 
-func (a *App) StartFetchTunInterface() error {
-	a.iface = iface.New("", a.config.Ip, a.config.Mtu)
-	err := a.iface.Start()
+func (this *App) StartFetchTunInterface() error {
+	this.iface = iface.New("", this.config.Ip, this.config.Mtu)
+	err := this.iface.Start()
 	if err != nil {
 		return err
 	}
 
 	for i := 0; i < 10; i++ {
-		go a.FetchAndProcessTunPkt()
+		go this.FetchAndProcessTunPkt(i)
 	}
 
-	return a.FetchAndProcessTunPkt()
+	return this.FetchAndProcessTunPkt(255)
 }
 
-func (a *App) FetchAndProcessTunPkt() error {
-	pkt := iface.NewPacketIP(a.config.Mtu)
+func (this *App) FetchAndProcessTunPkt(workerNum int) error {
+	mtu := config.GetInstance().Mtu
+	pkt := iface.NewPacketIP(mtu)
 	for {
-		n, err := a.iface.Read(pkt)
+		n, err := this.iface.Read(pkt)
 		if err != nil {
-			log.Printf("FetchAndProcessTunPkt::read ip pkt error: %v", err)
+			log.Error().Err(err).Msg("FetchAndProcessTunPkt read ip pkt error")
 			return err
 		}
 		src := pkt.GetSourceIP().String()
 		dst := pkt.GetDestinationIP().String()
-		if a.config.Verbose == 1 {
-			log.Printf("FetchAndProcessTunPkt::got tun packet: src=%s dst=%s len=%d", src, dst, n)
-		}
-		if a.config.ServerMode == 1 {
-			// log.Printf("FetchAndProcessTunPkt::receiver tun packet dst address  dst=%s, route_local_addr=%s", dst, a.routes[dst].LocalAddr)
-			conn := a.server.GetConnsByAddr(a.routes[dst].LocalAddr)
-			if conn == nil {
-				if a.config.Verbose == 1 {
-					log.Printf("FetchAndProcessTunPkt::unknown destination, packet dropped src=%s,dst=%s", src, dst)
+
+		log.Debug().Int("workder", workerNum).Str("src", src).Str("dst", dst).
+			Int("len", n).Msg("FetchAndProcessTunPkt::got tun packet")
+
+		if config.GetInstance().ServerMode {
+			for {
+				conns, ok := this.routes[dst]
+				if !ok {
+					log.Info().Int("workder", workerNum).Str("src", src).
+						Str("dst", dst).
+						Msg("FetchAndProcessTunPkt::no route, packet dropped")
+					break
 				}
-			} else {
-				conn.SendPacket(pkt)
+
+				keys := []string{}
+				for k := range conns {
+					keys = append(keys, k)
+				}
+
+				if len(keys) == 0 {
+					log.Info().Int("workder", workerNum).Str("src", src).
+						Str("dst", dst).
+						Msg("FetchAndProcessTunPkt::no conns, packet dropped")
+					break
+				}
+
+				idx := rand.Intn(len(keys))
+
+				conn := this.server.GetConnsByAddr(keys[idx])
+				if conn == nil {
+					log.Info().Int("workder", workerNum).Str("src", src).
+						Str("dst", dst).
+						Msg("FetchAndProcessTunPkt::no connection, packet dropped")
+					delete(conns, keys[idx])
+					this.routes[dst] = conns
+				} else {
+					conn.SendPacket(pkt)
+					break
+				}
 			}
 		} else {
 			//client send packet
-			a.client.SendPacket(pkt)
+			this.client.SendPacket(pkt)
 		}
 	}
 }
 
-func (a *App) InitClient() error {
-	//For server no need to make connection to client -gs
-	// if a.config.ServerMode == 0 {
-	peer := NewPeer(a.config, a)
-	peer.Start()
-	a.client = peer
-	return nil
-}
-
-func (a *App) getRoutes() []Route {
-	a.mutex.Lock()
-	routes := make([]Route, len(a.routes))
-	i := 0
-	for _, route := range a.routes {
-		routes[i] = route
-		i++
-	}
-	a.mutex.Unlock()
-	return routes
-}
-
-func (a *App) OnData(buf []byte, conn *net.TCPConn) {
+func (this *App) OnData(buf []byte, conn *net.TCPConn) {
 	ep := protocol.Envelope{}
 	err := proto.Unmarshal(buf, &ep)
 	if err != nil {
-		log.Printf("OnData::proto unmarshal err: %s", err)
+		log.Error().Err(err).Msg("OnData::proto unmarshal err")
 		return
 	}
+
 	switch ep.Type.(type) {
 	case *protocol.Envelope_Ping:
 		ping := ep.GetPing()
-		//log.Printf("received ping: %s", ping.String())
 		//根据Client发来的Ping包信息来添加路由
-		a.mutex.Lock()
-		a.routes[ping.GetIP()] = Route{
-			LocalAddr: ping.GetLocalAddr(),
-			IP:        ping.GetIP(),
+		this.mutex.Lock()
+
+		if _, ok := this.routes[ping.GetIP()]; ok {
+			this.routes[ping.GetIP()][ping.GetLocalAddr()] = struct{}{}
+		} else {
+			this.routes[ping.GetIP()] = map[string]struct{}{
+				ping.GetLocalAddr(): struct{}{},
+			}
 		}
 
-		a.server.SetConns(a.routes[ping.GetIP()].LocalAddr, conn)
-		if a.config.Verbose == 1 {
-			log.Printf("OnData::routes %s", a.routes)
-		}
-		a.mutex.Unlock()
+		log.Debug().Str("local", ping.GetLocalAddr()).Str("ip", ping.GetIP()).
+			Msg("Proto Ping")
+
+		log.Info().Interface("route", this.routes).
+			Msg("Route Table")
+
+		this.server.SetConns(ping.GetLocalAddr(), conn)
+		this.mutex.Unlock()
 	case *protocol.Envelope_Packet:
 		pkt := iface.PacketIP(ep.GetPacket().GetPayload())
-		if a.config.Verbose == 1 {
-			log.Printf("OnData::received packet: src=%s dst=%s len=%d",
-				pkt.GetSourceIP(), pkt.GetDestinationIP(), len(pkt))
-		}
-		a.iface.Write(pkt)
+
+		log.Debug().Int("pkt_len", len(pkt)).IPAddr("src", pkt.GetSourceIP()).
+			IPAddr("dst", pkt.GetDestinationIP()).
+			Msg("received protobuf packet")
+
+		this.iface.Write(pkt)
 	}
 }

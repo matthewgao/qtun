@@ -8,30 +8,30 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
+	// "log"
 	"net"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/matthewgao/qtun/iface"
 	"github.com/matthewgao/qtun/protocol"
 	"github.com/matthewgao/qtun/utils"
+	"github.com/rs/zerolog/log"
 )
 
 type ServerConn struct {
-	conn     *net.TCPConn
-	key      string
-	nonce    []byte
-	buf      []byte
-	aesgcm   cipher.AEAD
-	handler  ServerHandler
-	reader   *bufio.Reader
-	writeBuf *bytes.Buffer
-
+	conn      *net.TCPConn
+	key       string
+	nonce     []byte
+	buf       []byte
+	aesgcm    cipher.AEAD
+	handler   GrpcHandler
+	reader    *bufio.Reader
+	writeBuf  *bytes.Buffer
 	chanWrite chan []byte
 	// chanClose chan bool
 }
 
-func NewServerConn(conn *net.TCPConn, key string, handler ServerHandler) *ServerConn {
+func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler) *ServerConn {
 	return &ServerConn{
 		conn:      conn,
 		key:       key,
@@ -39,7 +39,7 @@ func NewServerConn(conn *net.TCPConn, key string, handler ServerHandler) *Server
 		nonce:     make([]byte, 12),
 		buf:       make([]byte, 65536),
 		writeBuf:  &bytes.Buffer{},
-		chanWrite: make(chan []byte, 1024),
+		chanWrite: make(chan []byte, 65536),
 		// chanClose: make(chan bool),
 	}
 }
@@ -47,7 +47,8 @@ func NewServerConn(conn *net.TCPConn, key string, handler ServerHandler) *Server
 func (sc *ServerConn) run(cleanup func()) {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("ServerConn::run::conn run err: %s", err)
+			log.Error().Interface("err", err).
+				Msg("ServerConn::run conn run fail")
 		}
 		cleanup()
 		sc.conn.Close()
@@ -64,18 +65,22 @@ func (sc *ServerConn) run(cleanup func()) {
 	for {
 		data, err := sc.read()
 		if err != nil {
-			log.Printf("ServerConn::run::conn read err: %s", err)
+			log.Error().Err(err).Msg("ServerConn::run conn read fail")
 			return
 		}
+
 		if sc.handler != nil {
 			sc.handler.OnData(data, sc.conn)
+		} else {
+			log.Warn().Msg("ServerConn::run sever_conn is nil")
 		}
 	}
 }
 
 func (sc *ServerConn) crypto() error {
 	if sc.key == "" {
-		log.Printf("incoming encryption disabled for %s", sc.conn.RemoteAddr())
+		log.Warn().Str("client_addr", sc.conn.RemoteAddr().String()).
+			Msg("incoming encryption disabled")
 		return nil
 	}
 	var err error
@@ -189,21 +194,25 @@ func (cc *ServerConn) ProcessWrite() (err error) {
 		if perr := recover(); perr != nil {
 			err = fmt.Errorf("server process write panic: %s", perr)
 		}
+
 		cc.conn.Close()
-		log.Printf("ServerConn::ProcessWrite::conn closed")
+		log.Warn().Str("client_addr", cc.conn.RemoteAddr().String()).
+			Msg("ServerConn::ProcessWrite conn closedd")
 	}()
-	log.Printf("ServerConn::ProcessWrite::Start conn_ptr=%v", cc.conn)
+
+	log.Info().Str("client_addr", cc.conn.RemoteAddr().String()).Msg("ServerConn::ProcessWrite Start")
+
 	for {
 		select {
 		case buf := <-cc.chanWrite:
-			// log.Printf("server conn write buf")
 			err = cc.write(buf)
 		}
+
 		if err != nil {
-			log.Printf("ServerConn::ProcessWrite::End err=%v", err)
+			log.Warn().Err(err).Str("client_addr", cc.conn.RemoteAddr().String()).
+				Msg("ServerConn::ProcessWrite End with error")
 			return err
 		}
 	}
-	log.Printf("ServerConn::ProcessWrite::End conn_ptr=%v", cc.conn)
 	return err
 }

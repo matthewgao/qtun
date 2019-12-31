@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-option go_package = "meshbird/protocol";
+option go_package = "qtun/protocol";
 
 message Envelope {
 	oneof type {

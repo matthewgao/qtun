@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 
 	"github.com/gookit/color"
 	"github.com/gookit/gcli/v2"
@@ -24,6 +25,8 @@ type CmdOpts struct {
 	LogLevel         string `default:"0"`
 	ServerMode       bool   `default:"0"`
 	Socks5Port       int
+	FileServerPort   int
+	FileDir          string
 }
 
 // options for the command
@@ -45,9 +48,11 @@ func Command() *gcli.Command {
 	cmd.StrOpt(&cmdOpts.Listen, "listen", "", "0.0.0.0:8080", "server listen address, only for server")
 	cmd.StrOpt(&cmdOpts.Ip, "ip", "", "10.237.0.1/16", "vpn vip")
 	cmd.StrOpt(&cmdOpts.LogLevel, "log_level", "", "info", "log level")
+	cmd.StrOpt(&cmdOpts.FileDir, "file_dir", "", "../static", "http file server directory")
 	cmd.IntOpt(&cmdOpts.TransportThreads, "transport_threads", "", 1, "concurrent threads num only for client")
 	cmd.IntOpt(&cmdOpts.Mtu, "mtu", "", 1500, "MTU size")
 	cmd.IntOpt(&cmdOpts.Socks5Port, "socks5_port", "", 2080, "socks5 server port")
+	cmd.IntOpt(&cmdOpts.FileServerPort, "file_svr_port", "", 8082, "http file server port")
 	cmd.BoolOpt(&cmdOpts.ServerMode, "server_mode", "", false, "if running in server mode")
 
 	return cmd
@@ -73,7 +78,7 @@ func command(c *gcli.Command, args []string) error {
 	if cmdOpts.ServerMode {
 		go socks5.StartSocks5(fmt.Sprintf("%d", cmdOpts.Socks5Port))
 	} else {
-		fileserver.Start("../static", "8082")
+		fileserver.Start(cmdOpts.FileDir, strconv.FormatInt(int64(cmdOpts.FileServerPort), 10))
 	}
 
 	qtunApp := qtun.NewApp()

@@ -8,7 +8,7 @@ import (
 func Start(dir string, port string) {
 	go func() {
 		for {
-			log.Info().Str("dir", dir).Msg("start file http server")
+			log.Info().Str("dir", dir).Str("listen_port", port).Msg("start file http server")
 			http.ListenAndServe("127.0.0.1:"+port, http.FileServer(http.Dir(dir)))
 		}
 	}()

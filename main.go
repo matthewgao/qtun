@@ -8,6 +8,7 @@ import (
 	"github.com/gookit/gcli/v2"
 	"github.com/gookit/gcli/v2/builtin"
 	"github.com/matthewgao/qtun/config"
+	"github.com/matthewgao/qtun/fileserver"
 	"github.com/matthewgao/qtun/qtun"
 	"github.com/matthewgao/qtun/socks5"
 	"github.com/matthewgao/qtun/utils/log"
@@ -69,7 +70,11 @@ func command(c *gcli.Command, args []string) error {
 
 	log.InitLog(cmdOpts.LogLevel)
 
-	go socks5.StartSocks5(fmt.Sprintf("%d", cmdOpts.Socks5Port))
+	if cmdOpts.ServerMode {
+		go socks5.StartSocks5(fmt.Sprintf("%d", cmdOpts.Socks5Port))
+	} else {
+		fileserver.Start("../static", "8082")
+	}
 
 	qtunApp := qtun.NewApp()
 	return qtunApp.Run()

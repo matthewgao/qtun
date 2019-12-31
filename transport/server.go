@@ -37,32 +37,28 @@ func NewServer(publicAddr string, handler GrpcHandler, key string) *Server {
 
 func (s *Server) Start() {
 	if config.GetInstance().ServerMode {
-		go s.processPublic()
+		go s.StartListen()
 	}
 }
 
-func (s *Server) processPublic() {
+func (s *Server) StartListen() {
 	defer func() {
 		if err := recover(); err != nil {
-			// log.Printf("public server panic: %s", err)
-
 			log.Error().Interface("err", err).
-				Msg("server process panic")
+				Msg("server listen panic")
 		}
-		// log.Printf("public server closed")
-		log.Info().Str("addr", s.publicAddr).Msg("server process exit, server closed")
+
+		log.Info().Str("addr", s.publicAddr).Msg("server listen exit, server closed")
 	}()
 	for {
 		tcpAddr, err := net.ResolveTCPAddr("tcp", s.publicAddr)
 		if err != nil {
-			// log.Printf("net resolve tcp addr err: %s", err)
 			log.Error().Err(err).Str("addr", s.publicAddr).Msg("net resolve tcp addr fail")
 			time.Sleep(time.Second * 5)
 			continue
 		}
 		err = s.listen(tcpAddr)
 		if err != nil {
-			// log.Printf("server listen err: %s", err)
 			log.Error().Err(err).Str("addr", s.publicAddr).Msg("server listen fail")
 		}
 		time.Sleep(time.Second)
@@ -71,9 +67,9 @@ func (s *Server) processPublic() {
 
 func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 	defer func() {
-		// log.Printf("Server::Listen::server listener closed")
 		log.Info().Str("addr", s.publicAddr).Msg("server listener closed")
 	}()
+
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	if err != nil {
 		return fmt.Errorf("Server::Listen::net listen tcp err: %s", err)
@@ -85,26 +81,21 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 				continue
 			}
-			// return fmt.Errorf("server accept err: %s", err)
-			// log.Printf("server accept err: %s", err)
+
 			log.Warn().Err(err).Str("addr", s.publicAddr).Msg("server accept fail")
 			continue
 		}
 
 		log.Info().Str("from", tcpConn.RemoteAddr().String()).Msg("server new accept")
-		// log.Printf("Server::Listen::new accept from %s", tcpConn.RemoteAddr())
+
 		serverConn := NewServerConn(tcpConn, s.key, s.handler)
-		//FIXME:have to control only one can connect to this now
-		// remoteAddr := tcpConn.RemoteAddr().String()
-		// log.Printf("Server::Listen::add to conn map, %s", remoteAddr)
-
 		log.Info().Str("from", tcpConn.RemoteAddr().String()).Msg("server start to read from connection")
-		// log.Printf("dump conn map, %v", s.Conns)
 
+		//start to read pkt from connection
 		go serverConn.run(func() {
 			s.RemoveConnByConnPointer(serverConn.conn)
-			// log.Printf("Server::Listen::Connections map: %v", s.Conns)
-			log.Warn().Str("from", serverConn.conn.RemoteAddr().String()).Interface("alive_conns", s.Conns).Msg("server read thread exit")
+			log.Warn().Str("from", serverConn.conn.RemoteAddr().String()).
+				Interface("alive_conns", s.Conns).Msg("server read thread exit")
 		})
 	}
 }

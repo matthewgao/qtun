@@ -62,8 +62,6 @@ func (c *Client) Start() {
 			c.conns[connIndex] = conn
 			go c.conns[connIndex].runRead()
 		} else {
-			// log.Printf("fail to connect to the server after 10 times retry")
-
 			log.Warn().Str("server_addr", c.remoteAddr).
 				Msg("fail to connect to the server after 10 times retry")
 
@@ -71,18 +69,15 @@ func (c *Client) Start() {
 		}
 	}
 
-	// log.Printf("%d connections has been set", len(c.conns))
-
 	log.Info().Str("server_addr", c.remoteAddr).Int("conn_num", len(c.conns)).
 		Msg("connections has been establlished")
 
 	c.mutex.Unlock()
-	// go c.ping()
+
 	go func() {
 		for {
 			c.ping()
 			time.Sleep(time.Second)
-			// log.Printf("ping exit restart conn_len %d", len(c.conns))
 			log.Warn().Str("server_addr", c.remoteAddr).Int("conn_num", len(c.conns)).
 				Msg("client ping exit, restart")
 		}
@@ -143,12 +138,12 @@ func (c *Client) Write(data []byte) {
 }
 
 //随机找一个可用的连接，为了获取连接地址
-func (c *Client) GetRemotePortRandom() string {
-	serial := atomic.AddInt64(&c.serial, 1)
-	next := int(serial) % c.threads
-	conn := c.conns[next]
-	return conn.GetConnPort()
-}
+// func (c *Client) GetRemotePortRandom() string {
+// 	serial := atomic.AddInt64(&c.serial, 1)
+// 	next := int(serial) % c.threads
+// 	conn := c.conns[next]
+// 	return conn.GetConnPort()
+// }
 
 func (c *Client) ping() {
 	defer func() {
@@ -158,6 +153,7 @@ func (c *Client) ping() {
 				Msg("peer ping panic")
 		}
 	}()
+
 	tickerPing := time.NewTicker(time.Second * 2)
 	defer tickerPing.Stop()
 	for range tickerPing.C {
@@ -165,9 +161,9 @@ func (c *Client) ping() {
 	}
 }
 
-func (c *Client) GetTunLocalAddrWithPort() string {
-	return fmt.Sprintf("%s:%s", config.GetInstance().Ip, c.GetRemotePortRandom())
-}
+// func (c *Client) GetTunLocalAddrWithPort() string {
+// 	return fmt.Sprintf("%s:%s", config.GetInstance().Ip, c.GetRemotePortRandom())
+// }
 
 func (c *Client) GetTunLocalAddrWithPortOnConn(conn *ClientConn) string {
 	return fmt.Sprintf("%s:%s", config.GetInstance().Ip, conn.GetConnPort())
@@ -187,13 +183,13 @@ func (c *Client) SendAllPing() {
 func (c *Client) SendPing(conn *ClientConn) {
 	ip, _, err := net.ParseCIDR(config.GetInstance().Ip)
 	utils.POE(err)
-	// localAddr := c.GetTunLocalAddrWithPort()
+
 	localAddr := c.GetTunLocalAddrWithPortOnConn(conn)
 	env := &protocol.Envelope{
 		Type: &protocol.Envelope_Ping{
 			Ping: &protocol.MessagePing{
 				Timestamp:        time.Now().UnixNano(),
-				LocalAddr:        localAddr, //唯一的表示一个CLINET端
+				LocalAddr:        localAddr, //唯一的表示一个CLINET端的一个连接
 				LocalPrivateAddr: "not_use",
 				DC:               "client",
 				IP:               ip.String(),
@@ -201,14 +197,11 @@ func (c *Client) SendPing(conn *ClientConn) {
 		},
 	}
 
-	// log.Printf("send ping: %s, %s", localAddr, ip.String())
-
-	log.Info().Str("local_addr", localAddr).Int("conn_num", len(c.conns)).IPAddr("client_vip", ip).
+	log.Debug().Str("local_addr", localAddr).Int("conn_num", len(c.conns)).IPAddr("client_vip", ip).
 		Msg("send ping")
 	data, err := proto.Marshal(env)
 	utils.POE(err)
-	// c.Write(data)
-	// c.Write(data)
+
 	conn.WriteNow(data)
 }
 

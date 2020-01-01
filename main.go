@@ -38,9 +38,10 @@ func Command() *gcli.Command {
 		Func:    command,
 		Name:    "qtun",
 		Aliases: []string{"qt"},
-		UseFor:  "run pic evaluation in batch",
+		UseFor:  "q-tun",
 		Examples: `
-  {$binName} {$cmd} --filename all.data --workernum 20 --cmd "python run.py"`,
+  Server: sudo {$binName} qt --key "hahaha" --listen "0.0.0.0:8080" --ip "10.4.4.2/24" --server_mode
+  Client: sudo {$binName} qt --key "hahaha" --remote_addrs "8.8.8.80:8080" --ip "10.4.4.3/24"`,
 	}
 
 	cmd.StrOpt(&cmdOpts.Key, "key", "", "hello-world", "encrpyt key")

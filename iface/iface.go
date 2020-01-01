@@ -42,7 +42,6 @@ func (i *Iface) Start() error {
 		return err
 	}
 
-	// log.Printf("tun interface name: %s", i.ifce.Name())
 	log.Info().Str("tun_name", i.ifce.Name()).
 		Msg("tun interface")
 
@@ -61,8 +60,6 @@ func (i *Iface) Start() error {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// log.Printf("run ifconfig fail: %v, %s", err, string(output))
-
 		log.Error().Err(err).Str("cmd_output", string(output)).
 			Msg("run ifconfig fail")
 
@@ -88,7 +85,6 @@ func (i *Iface) AddSysRoute(ip *net.IP) {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// log.Printf("add system route fail: %v, %s", err, string(output))
 		log.Error().Err(err).Str("cmd_output", string(output)).
 			Msg("add system route fail")
 		panic(fmt.Sprintf("err: %s %s", err, string(output)))

@@ -4,10 +4,9 @@
 
 a C-S safe tunnel, support multi-ip pipeline
 
-* Go 1.13 needed
-* you can set goproxy to accelerate module download progress `go env -w GOPROXY=https://goproxy.io,direct`
-
 ## How to run
+
+* Go 1.13 needed
 
 ### Server
 会自动启动两个服务一个Tun, 一个Socks5 Server 监听在127.0.0.1:2080
@@ -85,6 +84,10 @@ Examples:
   Server: sudo ./qtun qt --key "hahaha" --listen "0.0.0.0:8080" --ip "10.4.4.2/24" --server_mode
   Client: sudo ./qtun qt --key "hahaha" --remote_addrs "8.8.8.80:8080" --ip "10.4.4.3/24"
 ```
+
+## Misc
+* You can set goproxy to accelerate module download progress `go env -w GOPROXY=https://goproxy.io,direct`
+* Git with proxy `git config --global http.proxy 'socks5://10.4.4.2:2080'`
 
 ## Env
 

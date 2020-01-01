@@ -37,7 +37,7 @@ Global Options:
   -V, --version     Display app version information
 
 Available Commands:
-  qtun         Run pic evaluation in batch (alias: qt)
+  qtun        qiuqiu-tun (alias: qt)
 gen
   gen:ac       Generate auto complete scripts for current application (alias: genac,gen-ac)
 

@@ -258,10 +258,17 @@ func (sc *ClientConn) runRead() {
 	sc.reader = bufio.NewReader(sc.conn)
 	for {
 		data, err := sc.read()
+
+		if err == io.EOF {
+			log.Error().Err(err).Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
+				Msg("ClientConn::runRead conn read fail, connection is closed by server")
+			return
+		}
+
 		if err != nil {
 			log.Error().Err(err).Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
-				Msg("ClientConn::runRead conn read fail")
-			return
+				Msg("ClientConn::runRead conn read fail, retry")
+			continue
 		}
 
 		if sc.handler != nil {

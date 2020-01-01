@@ -64,9 +64,14 @@ func (sc *ServerConn) run(cleanup func()) {
 	sc.reader = bufio.NewReader(sc.conn)
 	for {
 		data, err := sc.read()
+		//FIXME: if it's EOF then need to exit, if it's not should continue
+		if err == io.EOF {
+			log.Error().Err(err).Msg("ServerConn::run conn read fail, it's closed by client")
+		}
+
 		if err != nil {
-			log.Error().Err(err).Msg("ServerConn::run conn read fail")
-			return
+			log.Error().Err(err).Msg("ServerConn::run conn read fail, retry")
+			continue
 		}
 
 		if sc.handler != nil {

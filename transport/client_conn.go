@@ -259,16 +259,16 @@ func (sc *ClientConn) runRead() {
 	for {
 		data, err := sc.read()
 
-		if err == io.EOF {
-			log.Error().Err(err).Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
-				Msg("ClientConn::runRead conn read fail, connection is closed by server")
-			return
-		}
+		// if err == io.EOF {
+		// 	log.Error().Err(err).Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
+		// 		Msg("ClientConn::runRead conn read fail, connection is closed by server")
+		// 	return
+		// }
 
 		if err != nil {
 			log.Error().Err(err).Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
-				Msg("ClientConn::runRead conn read fail, retry")
-			continue
+				Msg("ClientConn::runRead conn read fail, break")
+			break
 		}
 
 		if sc.handler != nil {

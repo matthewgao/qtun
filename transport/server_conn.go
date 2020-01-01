@@ -65,13 +65,13 @@ func (sc *ServerConn) run(cleanup func()) {
 	for {
 		data, err := sc.read()
 		//FIXME: if it's EOF then need to exit, if it's not should continue
-		if err == io.EOF {
-			log.Error().Err(err).Msg("ServerConn::run conn read fail, it's closed by client")
-		}
+		// if err == io.EOF || err == io.ErrUnexpectedEOF {
+		// 	log.Error().Err(err).Msg("ServerConn::run conn read fail, it's closed by client")
+		// }
 
 		if err != nil {
-			log.Error().Err(err).Msg("ServerConn::run conn read fail, retry")
-			continue
+			log.Error().Err(err).Msg("ServerConn::run conn read fail, break")
+			break
 		}
 
 		if sc.handler != nil {

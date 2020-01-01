@@ -37,6 +37,7 @@ var rules = [
   "|http:\/\/85.17.73.31\/",
   "||agnesb.fr",
   "||akiba-web.com",
+  "||pornhub.com^",
   "||altrec.com",
   "||apartmentratings.com",
   "||apartments.com",

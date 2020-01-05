@@ -112,6 +112,7 @@ func (s *Server) GetConnsByAddr(dst string) *ServerConn {
 func (s *Server) DeleteDeadConn(dst string) {
 	s.Mtx.Lock()
 	defer s.Mtx.Unlock()
+
 	conn, ok := s.Conns[dst]
 	if ok {
 		delete(s.Conns, dst)
@@ -119,6 +120,9 @@ func (s *Server) DeleteDeadConn(dst string) {
 			delete(s.ConnsReverse, conn.conn)
 		}
 	}
+
+	log.Warn().Str("dest", dst).Int("conn_size", len(s.Conns)).
+		Int("reverse_size", len(s.ConnsReverse)).Msg("delete dead conn")
 }
 
 func (s *Server) SetConns(dst string, conn *net.TCPConn) {

@@ -109,6 +109,18 @@ func (s *Server) GetConnsByAddr(dst string) *ServerConn {
 	return nil
 }
 
+func (s *Server) DeleteDeadConn(dst string) {
+	s.Mtx.Lock()
+	defer s.Mtx.Unlock()
+	conn, ok := s.Conns[dst]
+	if ok {
+		delete(s.Conns, dst)
+		if conn != nil {
+			delete(s.ConnsReverse, conn.conn)
+		}
+	}
+}
+
 func (s *Server) SetConns(dst string, conn *net.TCPConn) {
 	s.Mtx.Lock()
 	defer s.Mtx.Unlock()

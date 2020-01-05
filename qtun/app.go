@@ -95,12 +95,13 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 				idx := rand.Intn(len(keys))
 
 				conn := this.server.GetConnsByAddr(keys[idx])
-				if conn == nil {
+				if conn == nil || conn.IsClosed() {
 					log.Info().Int("workder", workerNum).Str("src", src).
 						Str("dst", dst).
 						Msg("FetchAndProcessTunPkt::no connection, packet dropped")
 					delete(conns, keys[idx])
 					this.routes[dst] = conns
+					this.server.DeleteDeadConn(dst)
 				} else {
 					conn.SendPacket(pkt)
 					break

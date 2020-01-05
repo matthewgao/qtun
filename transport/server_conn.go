@@ -29,6 +29,7 @@ type ServerConn struct {
 	writeBuf  *bytes.Buffer
 	chanWrite chan []byte
 	// chanClose chan bool
+	isClosed bool
 }
 
 func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler) *ServerConn {
@@ -52,6 +53,7 @@ func (sc *ServerConn) run(cleanup func()) {
 		}
 		cleanup()
 		sc.conn.Close()
+		sc.isClosed = true
 	}()
 	var err error
 	err = sc.crypto()
@@ -201,6 +203,7 @@ func (cc *ServerConn) ProcessWrite() (err error) {
 		}
 
 		cc.conn.Close()
+		cc.isClosed = true
 		log.Warn().Str("client_addr", cc.conn.RemoteAddr().String()).
 			Msg("ServerConn::ProcessWrite conn closedd")
 	}()
@@ -220,4 +223,8 @@ func (cc *ServerConn) ProcessWrite() (err error) {
 		}
 	}
 	return err
+}
+
+func (this *ServerConn) IsClosed() bool {
+	return this.isClosed
 }

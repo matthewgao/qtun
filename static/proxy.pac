@@ -6,6 +6,7 @@ var proxy = "SOCKS5 10.4.4.2:2080; DIRECT;";
 
 var rules = [
   "||ip138.com^",
+  "||github.com^",
   "||docker.com^",
   "||googleapis.com^",
   "||markitondemand.com^",

@@ -62,6 +62,7 @@ func (this *App) CleanRoute() {
 			}
 		}
 	}, time.Minute)
+	this.tm.Start()
 }
 
 func (this *App) StartFetchTunInterface() error {

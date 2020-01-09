@@ -4,12 +4,14 @@ import (
 	"math/rand"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/matthewgao/qtun/config"
 	"github.com/matthewgao/qtun/iface"
 	"github.com/matthewgao/qtun/protocol"
 	"github.com/matthewgao/qtun/transport"
+	"github.com/matthewgao/qtun/utils/timer"
 	"github.com/rs/zerolog/log"
 )
 
@@ -20,12 +22,14 @@ type App struct {
 	mutex  sync.RWMutex
 	server *transport.Server
 	iface  *iface.Iface
+	tm     timer.Timer
 }
 
 func NewApp() *App {
 	return &App{
 		config: config.GetInstance(),
 		routes: make(map[string]map[string]struct{}),
+		tm:     timer.NewTimer(),
 	}
 }
 
@@ -33,12 +37,31 @@ func (this *App) Run() error {
 	if config.GetInstance().ServerMode {
 		this.server = transport.NewServer(this.config.Listen, this, this.config.Key)
 		go this.server.Start()
+		this.CleanRoute()
 	} else {
 		this.client = transport.NewClient(this.config.RemoteAddrs, this.config.Key, this.config.TransportThreads, this)
 		this.client.Start()
 	}
 
 	return this.StartFetchTunInterface()
+}
+
+func (this *App) CleanRoute() {
+	this.tm.RegisterTask(func() {
+		log.Info().Msg("start to clean route")
+		for dst, conns := range this.routes {
+			for c := range conns {
+				conn := this.server.GetConnsByAddr(c)
+				if conn == nil || conn.IsClosed() {
+					log.Info().Str("conn", c).
+						Str("dst", dst).
+						Msg("remove dead conns from route")
+					delete(this.routes[dst], c)
+					this.server.DeleteDeadConn(c)
+				}
+			}
+		}
+	}, time.Minute)
 }
 
 func (this *App) StartFetchTunInterface() error {
@@ -99,9 +122,9 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 					log.Info().Int("workder", workerNum).Str("src", src).
 						Str("dst", dst).
 						Msg("FetchAndProcessTunPkt::no connection, packet dropped")
-					delete(conns, keys[idx])
-					this.routes[dst] = conns
-					this.server.DeleteDeadConn(dst)
+					delete(this.routes[dst], keys[idx])
+					// this.routes[dst] = conns
+					this.server.DeleteDeadConn(keys[idx])
 				} else {
 					conn.SendPacket(pkt)
 					break

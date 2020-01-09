@@ -30,9 +30,10 @@ type ServerConn struct {
 	chanWrite chan []byte
 	// chanClose chan bool
 	isClosed bool
+	noDelay  bool
 }
 
-func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler) *ServerConn {
+func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler, noDelay bool) *ServerConn {
 	return &ServerConn{
 		conn:      conn,
 		key:       key,
@@ -41,7 +42,7 @@ func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler) *ServerCo
 		buf:       make([]byte, 65536),
 		writeBuf:  &bytes.Buffer{},
 		chanWrite: make(chan []byte, 65536),
-		// chanClose: make(chan bool),
+		noDelay:   noDelay,
 	}
 }
 
@@ -61,7 +62,7 @@ func (sc *ServerConn) run(cleanup func()) {
 
 	sc.conn.SetReadBuffer(1024 * 1024)
 	sc.conn.SetWriteBuffer(1024 * 1024)
-	sc.conn.SetNoDelay(true) // close it, and see if the bandwidth can be increased
+	sc.conn.SetNoDelay(sc.noDelay) // close it, and see if the bandwidth can be increased
 
 	sc.reader = bufio.NewReader(sc.conn)
 	for {

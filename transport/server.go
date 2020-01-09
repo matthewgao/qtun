@@ -88,7 +88,7 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 
 		log.Info().Str("from", tcpConn.RemoteAddr().String()).Msg("server new accept")
 
-		serverConn := NewServerConn(tcpConn, s.key, s.handler)
+		serverConn := NewServerConn(tcpConn, s.key, s.handler, config.GetInstance().NoDelay)
 		log.Info().Str("from", tcpConn.RemoteAddr().String()).Msg("server start to read from connection")
 
 		//start to read pkt from connection
@@ -133,7 +133,7 @@ func (s *Server) SetConns(dst string, conn *net.TCPConn) {
 			return
 		}
 
-		serverConn := NewServerConn(conn, s.key, s.handler)
+		serverConn := NewServerConn(conn, s.key, s.handler, config.GetInstance().NoDelay)
 		//Urgly 应该保证连接只run一下，只为了writebuf里面的内容可以正确的被处理，现在run了两次, 应该把读和写都统一在一个对象里管理
 		go serverConn.ProcessWrite()
 		s.Conns[dst] = serverConn

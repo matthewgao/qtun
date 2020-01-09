@@ -43,7 +43,7 @@ func (c *Client) Start() {
 	c.conns = make([]*ClientConn, c.threads)
 	for connIndex := 0; connIndex < c.threads; connIndex++ {
 		c.wg.Add(1)
-		conn := NewClientConn(c.remoteAddr, c.key, connIndex, &c.wg)
+		conn := NewClientConn(c.remoteAddr, c.key, connIndex, &c.wg, config.GetInstance().NoDelay)
 		conn.SetHander(c.handler)
 
 		go conn.run()

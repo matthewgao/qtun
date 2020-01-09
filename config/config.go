@@ -9,6 +9,7 @@ type Config struct {
 	Mtu              int    `default:"1500"`
 	// Verbose          bool   `default:"0"`
 	ServerMode bool `default:"0"`
+	NoDelay    bool
 }
 
 var GLOBAL_CONFIG *Config = nil

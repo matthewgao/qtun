@@ -36,9 +36,10 @@ type ClientConn struct {
 	readBuf    []byte
 	handler    GrpcHandler
 	reader     *bufio.Reader
+	noDelay    bool
 }
 
-func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup) *ClientConn {
+func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup, noDelay bool) *ClientConn {
 	return &ClientConn{
 		remoteAddr: remoteAddr,
 		key:        key,
@@ -49,6 +50,7 @@ func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup) 
 		nonce:      make([]byte, 12),
 		buf:        &bytes.Buffer{},
 		readBuf:    make([]byte, 65536),
+		noDelay:    noDelay,
 	}
 }
 
@@ -76,7 +78,7 @@ func (this *ClientConn) tryConnect() error {
 
 	this.conn.SetReadBuffer(1024 * 1024)
 	this.conn.SetWriteBuffer(1024 * 1024)
-	this.conn.SetNoDelay(true)
+	this.conn.SetNoDelay(this.noDelay)
 
 	return nil
 }
@@ -253,7 +255,7 @@ func (sc *ClientConn) runRead() {
 
 	sc.conn.SetReadBuffer(1024 * 1024)
 	sc.conn.SetWriteBuffer(1024 * 1024)
-	sc.conn.SetNoDelay(true)
+	sc.conn.SetNoDelay(sc.noDelay)
 
 	sc.reader = bufio.NewReader(sc.conn)
 	for {

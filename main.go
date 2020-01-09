@@ -27,6 +27,7 @@ type CmdOpts struct {
 	Socks5Port       int
 	FileServerPort   int
 	FileDir          string
+	NoDelay          bool
 }
 
 // options for the command
@@ -55,6 +56,7 @@ func Command() *gcli.Command {
 	cmd.IntOpt(&cmdOpts.Socks5Port, "socks5_port", "", 2080, "socks5 server port")
 	cmd.IntOpt(&cmdOpts.FileServerPort, "file_svr_port", "", 8082, "http file server port")
 	cmd.BoolOpt(&cmdOpts.ServerMode, "server_mode", "", false, "if running in server mode")
+	cmd.BoolOpt(&cmdOpts.NoDelay, "nodelay", "", true, "tcp no delay")
 
 	return cmd
 }
@@ -72,6 +74,7 @@ func command(c *gcli.Command, args []string) error {
 		Ip:               cmdOpts.Ip,
 		Mtu:              cmdOpts.Mtu,
 		ServerMode:       cmdOpts.ServerMode,
+		NoDelay:          cmdOpts.NoDelay,
 	})
 
 	log.InitLog(cmdOpts.LogLevel)

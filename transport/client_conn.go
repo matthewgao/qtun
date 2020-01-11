@@ -231,6 +231,10 @@ func (this *ClientConn) write(data []byte) error {
 }
 
 func (this *ClientConn) Write(data []byte) {
+	if this == nil || this.chanWrite == nil {
+		log.Warn().Msg("ClientConn::write conn not init, retry later")
+		return
+	}
 	this.chanWrite <- data
 }
 

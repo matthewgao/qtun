@@ -79,6 +79,8 @@ func (this *ClientConn) tryConnect() error {
 	this.conn.SetReadBuffer(1024 * 1024)
 	this.conn.SetWriteBuffer(1024 * 1024)
 	this.conn.SetNoDelay(this.noDelay)
+	this.conn.SetKeepAlive(true)
+	this.conn.SetKeepAlivePeriod(time.Second * 10)
 
 	return nil
 }

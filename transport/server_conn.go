@@ -8,6 +8,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"time"
+
 	// "log"
 	"net"
 
@@ -63,6 +65,8 @@ func (sc *ServerConn) run(cleanup func()) {
 	sc.conn.SetReadBuffer(1024 * 1024)
 	sc.conn.SetWriteBuffer(1024 * 1024)
 	sc.conn.SetNoDelay(sc.noDelay) // close it, and see if the bandwidth can be increased
+	sc.conn.SetKeepAlive(true)
+	sc.conn.SetKeepAlivePeriod(time.Second * 10)
 
 	sc.reader = bufio.NewReader(sc.conn)
 	for {

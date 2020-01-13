@@ -19,6 +19,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var ErrCiperNotMatch = fmt.Errorf("fail to match key")
+
 type ServerConn struct {
 	conn      *net.TCPConn
 	key       string
@@ -76,6 +78,11 @@ func (sc *ServerConn) run(cleanup func()) {
 		// 	log.Error().Err(err).Msg("ServerConn::run conn read fail, it's closed by client")
 		// }
 
+		if err == ErrCiperNotMatch {
+			log.Error().Err(err).Str("from", sc.conn.LocalAddr().Network()).Msg("fail to match key, break")
+			break
+		}
+
 		if err != nil {
 			log.Error().Err(err).Msg("ServerConn::run conn read fail, break")
 			break
@@ -126,7 +133,8 @@ func (sc *ServerConn) read() ([]byte, error) {
 		}
 		plain, err := sc.aesgcm.Open(nil, sc.nonce, sc.buf[:dataLen], nil)
 		if err != nil {
-			return nil, err
+			// return nil, err
+			return nil, ErrCiperNotMatch
 		}
 		return plain, nil
 	}

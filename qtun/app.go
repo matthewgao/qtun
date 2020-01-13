@@ -3,6 +3,8 @@ package qtun
 import (
 	"math/rand"
 	"net"
+	"os/exec"
+	"runtime"
 	"sync"
 	"time"
 
@@ -41,6 +43,7 @@ func (this *App) Run() error {
 	} else {
 		this.client = transport.NewClient(this.config.RemoteAddrs, this.config.Key, this.config.TransportThreads, this)
 		this.client.Start()
+		this.SetProxy()
 	}
 
 	return this.StartFetchTunInterface()
@@ -176,5 +179,25 @@ func (this *App) OnData(buf []byte, conn *net.TCPConn) {
 			Msg("received protobuf packet")
 
 		this.iface.Write(pkt)
+	}
+}
+
+func (this *App) SetProxy() {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("networksetup", "-setautoproxyurl", "Wi-Fi", "http://127.0.0.1:8082/proxy.pac")
+		log.Info().Str("cmd", cmd.String()).Msg("set system proxy")
+	case "linux":
+		log.Info().Msg("set system proxy not support please set it manually")
+	case "windows":
+		log.Info().Msg("set system proxy not support please set it manually")
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Error().Err(err).Str("cmd_output", string(output)).
+			Msg("set system proxy fail")
 	}
 }

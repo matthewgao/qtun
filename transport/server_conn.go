@@ -67,6 +67,7 @@ func (sc *ServerConn) run(cleanup func()) {
 	sc.conn.SetNoDelay(sc.noDelay) // close it, and see if the bandwidth can be increased
 	sc.conn.SetKeepAlive(true)
 	sc.conn.SetKeepAlivePeriod(time.Second * 10)
+	// sc.conn.SetDeadline(time.Second * 30)
 
 	sc.reader = bufio.NewReader(sc.conn)
 	for {

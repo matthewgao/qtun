@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"runtime"
 	"strconv"
 
@@ -102,6 +104,13 @@ func Init() {
 	app.Run()
 }
 
+func pprof() {
+	go func() {
+		fmt.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+}
+
 func main() {
+	pprof()
 	Init()
 }

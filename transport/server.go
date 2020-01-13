@@ -89,8 +89,9 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 		log.Info().Str("from", tcpConn.RemoteAddr().String()).Msg("server new accept")
 
 		serverConn := NewServerConn(tcpConn, s.key, s.handler, config.GetInstance().NoDelay)
-		log.Info().Str("from", tcpConn.RemoteAddr().String()).Msg("server start to read from connection")
-
+		log.Info().Int("conn_size", len(s.Conns)).
+			Int("reverse_size", len(s.ConnsReverse)).
+			Str("from", tcpConn.RemoteAddr().String()).Msg("server start to read from connection")
 		//start to read pkt from connection
 		go serverConn.run(func() {
 			s.RemoveConnByConnPointer(serverConn.conn)

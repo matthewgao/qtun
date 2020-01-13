@@ -41,7 +41,7 @@ func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler, noDelay b
 		nonce:     make([]byte, 12),
 		buf:       make([]byte, 65536),
 		writeBuf:  &bytes.Buffer{},
-		chanWrite: make(chan []byte, 65536),
+		chanWrite: make(chan []byte, 4096),
 		noDelay:   noDelay,
 	}
 }
@@ -50,7 +50,7 @@ func (sc *ServerConn) run(cleanup func()) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Error().Interface("err", err).
-				Msg("ServerConn::run conn run fail")
+				Msg("ServerConn::run conn run fail, exit")
 		}
 		cleanup()
 		sc.conn.Close()

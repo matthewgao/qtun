@@ -81,6 +81,7 @@ func (this *ClientConn) tryConnect() error {
 	this.conn.SetNoDelay(this.noDelay)
 	this.conn.SetKeepAlive(true)
 	this.conn.SetKeepAlivePeriod(time.Second * 10)
+	// this.conn.SetReadDeadline(time.Now().Add(timeoutDuration))
 
 	return nil
 }
@@ -227,6 +228,7 @@ func (this *ClientConn) write(data []byte) error {
 		}
 	}
 	if err == nil {
+		// this.conn.SetReadDeadline(time.Now().Add(time.Second * 5))
 		_, err = this.buf.WriteTo(this.conn)
 	}
 	return err
@@ -265,6 +267,7 @@ func (sc *ClientConn) runRead() {
 
 	sc.reader = bufio.NewReader(sc.conn)
 	for {
+		// sc.conn.SetReadDeadline(time.Now().Add(time.Second * 5))
 		data, err := sc.read()
 
 		// if err == io.EOF {

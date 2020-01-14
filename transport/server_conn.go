@@ -79,7 +79,7 @@ func (sc *ServerConn) run(cleanup func()) {
 		// }
 
 		if err == ErrCiperNotMatch {
-			log.Error().Err(err).Str("from", sc.conn.LocalAddr().Network()).Msg("fail to match key, break")
+			log.Error().Err(err).Str("from", sc.conn.RemoteAddr().String()).Msg("fail to match key, break")
 			break
 		}
 

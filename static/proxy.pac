@@ -3,9 +3,11 @@
 
 //var proxy = "SOCKS5 10.4.4.2:2080; SOCKS 10.4.4.2:2080; DIRECT;";
 var proxy = "SOCKS5 10.4.4.2:2080; DIRECT;";
+// var proxy = "SOCKS5 127.0.0.1:13659; DIRECT;";
 
 var rules = [
   "||ip138.com^",
+  "||dailymail.co.uk^",
   "||github.com^",
   "||docker.com^",
   "||googleapis.com^",

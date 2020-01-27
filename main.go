@@ -30,6 +30,7 @@ type CmdOpts struct {
 	FileServerPort   int
 	FileDir          string
 	NoDelay          bool
+	ProxyOnly        bool
 }
 
 // options for the command
@@ -59,6 +60,7 @@ func Command() *gcli.Command {
 	cmd.IntOpt(&cmdOpts.FileServerPort, "file_svr_port", "", 8082, "http file server port")
 	cmd.BoolOpt(&cmdOpts.ServerMode, "server_mode", "", false, "if running in server mode")
 	cmd.BoolOpt(&cmdOpts.NoDelay, "nodelay", "", false, "tcp no delay")
+	cmd.BoolOpt(&cmdOpts.ProxyOnly, "proxyonly", "", false, "only enable proxy")
 
 	return cmd
 }
@@ -80,6 +82,13 @@ func command(c *gcli.Command, args []string) error {
 	})
 
 	log.InitLog(cmdOpts.LogLevel)
+
+	if cmdOpts.ProxyOnly {
+		qtunApp := qtun.NewApp()
+		qtunApp.SetProxy()
+		socks5.StartSocks5(fmt.Sprintf("%d", cmdOpts.Socks5Port))
+		return nil
+	}
 
 	if cmdOpts.ServerMode {
 		go socks5.StartSocks5(fmt.Sprintf("%d", cmdOpts.Socks5Port))

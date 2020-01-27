@@ -191,8 +191,10 @@ func (this *App) SetProxy() {
 		log.Info().Str("cmd", cmd.String()).Msg("set system proxy")
 	case "linux":
 		log.Info().Msg("set system proxy not support please set it manually")
+		return
 	case "windows":
 		log.Info().Msg("set system proxy not support please set it manually")
+		return
 	}
 
 	output, err := cmd.CombinedOutput()

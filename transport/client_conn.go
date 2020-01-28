@@ -3,16 +3,18 @@ package transport
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/cipher"
 	crand "crypto/rand"
+	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"io"
-	"net"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/lucas-clemente/quic-go"
 	"github.com/matthewgao/qtun/utils"
 	"github.com/rs/zerolog/log"
 )
@@ -22,7 +24,8 @@ var nilBuf = make([]byte, 0)
 type ClientConn struct {
 	remoteAddr string
 	key        string
-	conn       *net.TCPConn
+	conn       quic.Stream
+	session    quic.Session
 	index      int
 	mutex      sync.RWMutex
 	aesgcm     cipher.AEAD
@@ -66,21 +69,32 @@ func (this *ClientConn) IsConnected() bool {
 }
 
 func (this *ClientConn) tryConnect() error {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", this.remoteAddr)
+	// tcpAddr, err := net.ResolveTCPAddr("tcp", this.remoteAddr)
+	// if err != nil {
+	// 	return err
+	// }
+	tlsConf := &tls.Config{
+		InsecureSkipVerify: true,
+		NextProtos:         []string{"quic-echo-example"},
+	}
+
+	session, err := quic.DialAddr(this.remoteAddr, tlsConf, nil)
 	if err != nil {
 		return err
 	}
 
-	this.conn, err = net.DialTCP("tcp", nil, tcpAddr)
+	this.session = session
+
+	this.conn, err = this.session.OpenStreamSync(context.Background())
 	if err != nil {
 		return err
 	}
 
-	this.conn.SetReadBuffer(1024 * 1024)
-	this.conn.SetWriteBuffer(1024 * 1024)
-	this.conn.SetNoDelay(this.noDelay)
-	this.conn.SetKeepAlive(true)
-	this.conn.SetKeepAlivePeriod(time.Second * 10)
+	// this.conn.SetReadBuffer(1024 * 1024)
+	// this.conn.SetWriteBuffer(1024 * 1024)
+	// this.conn.SetNoDelay(this.noDelay)
+	// this.conn.SetKeepAlive(true)
+	// this.conn.SetKeepAlivePeriod(time.Second * 10)
 	// this.conn.SetReadDeadline(time.Now().Add(timeoutDuration))
 
 	return nil
@@ -261,9 +275,9 @@ func (sc *ClientConn) runRead() {
 	err = sc.crypto()
 	utils.POE(err)
 
-	sc.conn.SetReadBuffer(1024 * 1024)
-	sc.conn.SetWriteBuffer(1024 * 1024)
-	sc.conn.SetNoDelay(sc.noDelay)
+	// sc.conn.SetReadBuffer(1024 * 1024)
+	// sc.conn.SetWriteBuffer(1024 * 1024)
+	// sc.conn.SetNoDelay(sc.noDelay)
 
 	sc.reader = bufio.NewReader(sc.conn)
 	for {
@@ -283,7 +297,7 @@ func (sc *ClientConn) runRead() {
 		}
 
 		if sc.handler != nil {
-			sc.handler.OnData(data, sc.conn)
+			sc.handler.ClientOnData(data)
 		} else {
 			log.Error().Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
 				Msg("ClientConn::runRead handler is null")
@@ -326,7 +340,8 @@ func (sc *ClientConn) read() ([]byte, error) {
 
 //为了使用 10.4.4.3:port 这样的格式来表示一条tcp连接
 func (sc *ClientConn) GetConnPort() string {
-	fullWithPort := sc.conn.LocalAddr().String()
+	// fullWithPort := sc.conn.LocalAddr().String()
+	fullWithPort := sc.session.LocalAddr().String()
 	addrPair := strings.Split(fullWithPort, ":")
 	// log.Printf("get local tcp addr %s", fullWithPort)
 	if len(addrPair) < 2 {

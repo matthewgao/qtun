@@ -2,7 +2,6 @@ package qtun
 
 import (
 	"math/rand"
-	"net"
 	"os/exec"
 	"runtime"
 	"sync"
@@ -141,7 +140,7 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 	}
 }
 
-func (this *App) OnData(buf []byte, conn *net.TCPConn) {
+func (this *App) ServerOnData(buf []byte, conn *transport.ServerConn) {
 	ep := protocol.Envelope{}
 	err := proto.Unmarshal(buf, &ep)
 	if err != nil {
@@ -171,6 +170,47 @@ func (this *App) OnData(buf []byte, conn *net.TCPConn) {
 
 		this.server.SetConns(ping.GetLocalAddr(), conn)
 		this.mutex.Unlock()
+	case *protocol.Envelope_Packet:
+		pkt := iface.PacketIP(ep.GetPacket().GetPayload())
+
+		log.Debug().Int("pkt_len", len(pkt)).IPAddr("src", pkt.GetSourceIP()).
+			IPAddr("dst", pkt.GetDestinationIP()).
+			Msg("received protobuf packet")
+
+		this.iface.Write(pkt)
+	}
+}
+
+func (this *App) ClientOnData(buf []byte) {
+	ep := protocol.Envelope{}
+	err := proto.Unmarshal(buf, &ep)
+	if err != nil {
+		log.Error().Err(err).Msg("OnData::proto unmarshal err")
+		return
+	}
+
+	switch ep.Type.(type) {
+	case *protocol.Envelope_Ping:
+		// ping := ep.GetPing()
+		// //根据Client发来的Ping包信息来添加路由
+		// this.mutex.Lock()
+
+		// if _, ok := this.routes[ping.GetIP()]; ok {
+		// 	this.routes[ping.GetIP()][ping.GetLocalAddr()] = struct{}{}
+		// } else {
+		// 	this.routes[ping.GetIP()] = map[string]struct{}{
+		// 		ping.GetLocalAddr(): struct{}{},
+		// 	}
+		// }
+
+		// log.Debug().Str("local", ping.GetLocalAddr()).Str("ip", ping.GetIP()).
+		// 	Msg("Proto Ping")
+
+		// log.Info().Interface("route", this.routes).
+		// 	Msg("Route Table")
+
+		// this.server.SetConns(ping.GetLocalAddr(), conn)
+		// this.mutex.Unlock()
 	case *protocol.Envelope_Packet:
 		pkt := iface.PacketIP(ep.GetPacket().GetPayload())
 

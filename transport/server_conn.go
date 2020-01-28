@@ -10,9 +10,9 @@ import (
 	"io"
 
 	// "log"
-	"net"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/lucas-clemente/quic-go"
 	"github.com/matthewgao/qtun/iface"
 	"github.com/matthewgao/qtun/protocol"
 	"github.com/matthewgao/qtun/utils"
@@ -22,7 +22,7 @@ import (
 var ErrCiperNotMatch = fmt.Errorf("fail to match key")
 
 type ServerConn struct {
-	conn      *net.TCPConn
+	conn      quic.Stream
 	key       string
 	nonce     []byte
 	buf       []byte
@@ -36,7 +36,7 @@ type ServerConn struct {
 	noDelay  bool
 }
 
-func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler, noDelay bool) *ServerConn {
+func NewServerConn(conn quic.Stream, key string, handler GrpcHandler, noDelay bool) *ServerConn {
 	return &ServerConn{
 		conn:      conn,
 		key:       key,
@@ -63,9 +63,10 @@ func (sc *ServerConn) run(cleanup func()) {
 	err = sc.crypto()
 	utils.POE(err)
 
-	sc.conn.SetReadBuffer(1024 * 1024)
-	sc.conn.SetWriteBuffer(1024 * 1024)
-	sc.conn.SetNoDelay(sc.noDelay) // close it, and see if the bandwidth can be increased
+	// sc.conn.SetReadBuffer(1024 * 1024)
+	// sc.conn.SetWriteBuffer(1024 * 1024)
+	// sc.conn.
+	// sc.conn.SetNoDelay(sc.noDelay) // close it, and see if the bandwidth can be increased
 	// sc.conn.SetKeepAlive(true)
 	// sc.conn.SetKeepAlivePeriod(time.Second * 10)
 	// sc.conn.SetDeadline(time.Second * 30)
@@ -79,7 +80,8 @@ func (sc *ServerConn) run(cleanup func()) {
 		// }
 
 		if err == ErrCiperNotMatch {
-			log.Error().Err(err).Str("from", sc.conn.RemoteAddr().String()).Msg("fail to match key, break")
+			// log.Error().Err(err).Str("from", sc.conn.RemoteAddr().String()).Msg("fail to match key, break")
+			log.Error().Err(err).Msg("fail to match key, break")
 			break
 		}
 
@@ -89,7 +91,7 @@ func (sc *ServerConn) run(cleanup func()) {
 		}
 
 		if sc.handler != nil {
-			sc.handler.OnData(data, sc.conn)
+			sc.handler.ServerOnData(data, sc)
 		} else {
 			log.Warn().Msg("ServerConn::run sever_conn is nil")
 		}
@@ -98,8 +100,9 @@ func (sc *ServerConn) run(cleanup func()) {
 
 func (sc *ServerConn) crypto() error {
 	if sc.key == "" {
-		log.Warn().Str("client_addr", sc.conn.RemoteAddr().String()).
-			Msg("incoming encryption disabled")
+		// log.Warn().Str("client_addr", sc.conn.RemoteAddr().String()).
+		// 	Msg("incoming encryption disabled")
+		log.Warn().Msg("incoming encryption disabled")
 		return nil
 	}
 	var err error
@@ -217,11 +220,13 @@ func (cc *ServerConn) ProcessWrite() (err error) {
 
 		cc.conn.Close()
 		cc.isClosed = true
-		log.Warn().Str("client_addr", cc.conn.RemoteAddr().String()).
-			Msg("ServerConn::ProcessWrite conn closedd")
+		// log.Warn().Str("client_addr", cc.conn.RemoteAddr().String()).
+		// 	Msg("ServerConn::ProcessWrite conn closedd")
+		log.Warn().Msg("ServerConn::ProcessWrite conn closedd")
 	}()
 
-	log.Info().Str("client_addr", cc.conn.RemoteAddr().String()).Msg("ServerConn::ProcessWrite Start")
+	// log.Info().Str("client_addr", cc.conn.RemoteAddr().String()).Msg("ServerConn::ProcessWrite Start")
+	log.Info().Msg("ServerConn::ProcessWrite Start")
 
 	for {
 		select {
@@ -230,8 +235,9 @@ func (cc *ServerConn) ProcessWrite() (err error) {
 		}
 
 		if err != nil {
-			log.Warn().Err(err).Str("client_addr", cc.conn.RemoteAddr().String()).
-				Msg("ServerConn::ProcessWrite End with error")
+			// log.Warn().Err(err).Str("client_addr", cc.conn.RemoteAddr().String()).
+			// 	Msg("ServerConn::ProcessWrite End with error")
+			log.Warn().Err(err).Msg("ServerConn::ProcessWrite End with error")
 			return err
 		}
 	}

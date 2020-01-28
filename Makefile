@@ -9,5 +9,7 @@ windows:
 linux:
 	env GOOS=linux GOARCH=amd64 go build -v -o bin/qtun-linux main.go
 
+linux-i686:
+	env GOOS=linux GOARCH=386 go build -v -o bin/qtun-linux main.go
 deps:
 	go get -v qtun

@@ -73,6 +73,10 @@ func (this *ClientConn) tryConnect() error {
 	// if err != nil {
 	// 	return err
 	// }
+	if this.IsConnected() {
+		log.Info().Str("server_addr", this.remoteAddr).Msg("connection is alive skip try connect")
+	}
+
 	tlsConf := &tls.Config{
 		InsecureSkipVerify: true,
 		NextProtos:         []string{"quic-echo-example"},
@@ -96,7 +100,7 @@ func (this *ClientConn) tryConnect() error {
 	// this.conn.SetKeepAlive(true)
 	// this.conn.SetKeepAlivePeriod(time.Second * 10)
 	// this.conn.SetReadDeadline(time.Now().Add(timeoutDuration))
-
+	log.Info().Str("server_addr", this.remoteAddr).Msg("try connect success")
 	return nil
 }
 
@@ -137,8 +141,8 @@ func (this *ClientConn) run() {
 				Msg("connect server fail")
 			time.Sleep(time.Millisecond * 1000)
 		} else {
-			go this.runRead()
-			err = this.process()
+			go this.process()
+			err = this.runRead()
 			if err == nil {
 				log.Error().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
 					Msg("client exit from process ")
@@ -260,7 +264,7 @@ func (this *ClientConn) WriteNow(data []byte) error {
 	return this.write(data)
 }
 
-func (sc *ClientConn) runRead() {
+func (sc *ClientConn) runRead() error {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Error().Interface("err", err).Int("thread_index", sc.index).
@@ -270,6 +274,7 @@ func (sc *ClientConn) runRead() {
 		if sc.conn != nil {
 			sc.conn.Close()
 		}
+		sc.setConnected(false)
 	}()
 	var err error
 	err = sc.crypto()
@@ -293,7 +298,8 @@ func (sc *ClientConn) runRead() {
 		if err != nil {
 			log.Error().Err(err).Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
 				Msg("ClientConn::runRead conn read fail, break")
-			break
+			// break
+			return err
 		}
 
 		if sc.handler != nil {
@@ -344,8 +350,9 @@ func (sc *ClientConn) GetConnPort() string {
 	fullWithPort := sc.session.LocalAddr().String()
 	addrPair := strings.Split(fullWithPort, ":")
 	// log.Printf("get local tcp addr %s", fullWithPort)
-	if len(addrPair) < 2 {
+	// fmt.Printf("get conn port %v\n", fullWithPort)
+	if len(addrPair) < 3 {
 		panic("fail to get local tcp port")
 	}
-	return addrPair[1]
+	return addrPair[3]
 }

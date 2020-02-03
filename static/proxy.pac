@@ -8,7 +8,6 @@ var proxy = "SOCKS5 10.4.4.2:2080; DIRECT;";
 var rules = [
   "||ip138.com^",
   "||dailymail.co.uk^",
-  "||github.com^",
   "||docker.com^",
   "||googleapis.com^",
   "||markitondemand.com^",
@@ -103,7 +102,6 @@ var rules = [
   "||g-area.org",
   "||gettyimages.com",
   "||getuploader.com",
-  "|https:\/\/raw.githubusercontent.com\/programthink\/zhao",
   "||glass8.eu",
   "||glype.com",
   "||go141.com",

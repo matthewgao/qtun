@@ -159,7 +159,9 @@ func (this *ClientConn) process() (err error) {
 		}
 
 		this.setConnected(false)
-		this.conn.Close()
+		if this.conn != nil {
+			this.conn.Close()
+		}
 
 		log.Error().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
 			Msg("client conn closed")

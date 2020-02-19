@@ -31,9 +31,9 @@ type ServerConn struct {
 	reader    *bufio.Reader
 	writeBuf  *bytes.Buffer
 	chanWrite chan []byte
-	// chanClose chan bool
-	isClosed bool
-	noDelay  bool
+	chanClose chan bool
+	isClosed  bool
+	noDelay   bool
 }
 
 func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler, noDelay bool) *ServerConn {
@@ -58,6 +58,7 @@ func (sc *ServerConn) run(cleanup func()) {
 		cleanup()
 		sc.conn.Close()
 		sc.isClosed = true
+		sc.Stop()
 	}()
 	var err error
 	err = sc.crypto()
@@ -218,7 +219,7 @@ func (cc *ServerConn) ProcessWrite() (err error) {
 		cc.conn.Close()
 		cc.isClosed = true
 		log.Warn().Str("client_addr", cc.conn.RemoteAddr().String()).
-			Msg("ServerConn::ProcessWrite conn closedd")
+			Msg("ServerConn::ProcessWrite conn closed")
 	}()
 
 	log.Info().Str("client_addr", cc.conn.RemoteAddr().String()).Msg("ServerConn::ProcessWrite Start")
@@ -227,6 +228,12 @@ func (cc *ServerConn) ProcessWrite() (err error) {
 		select {
 		case buf := <-cc.chanWrite:
 			err = cc.write(buf)
+		case stop := <-cc.chanClose:
+			if stop {
+				log.Info().Err(err).Str("client_addr", cc.conn.RemoteAddr().String()).
+					Msg("ServerConn::ProcessWrite stop")
+				return err
+			}
 		}
 
 		if err != nil {
@@ -236,6 +243,10 @@ func (cc *ServerConn) ProcessWrite() (err error) {
 		}
 	}
 	return err
+}
+
+func (this *ServerConn) Stop() {
+	this.chanClose <- true
 }
 
 func (this *ServerConn) IsClosed() bool {

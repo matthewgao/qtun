@@ -20,6 +20,7 @@ type Server struct {
 
 	//为了能够删除已经断开的连接，并能够反过来查询连接，所以有两个map
 	Conns        map[string]*ServerConn
+	ClientConns  map[string]*ServerConn
 	ConnsReverse map[*net.TCPConn]string
 }
 
@@ -29,6 +30,7 @@ func NewServer(publicAddr string, handler GrpcHandler, key string) *Server {
 		handler:      handler,
 		key:          key,
 		Conns:        make(map[string]*ServerConn),
+		ClientConns:  make(map[string]*ServerConn),
 		ConnsReverse: make(map[*net.TCPConn]string),
 		Mtx:          &sync.Mutex{},
 	}
@@ -89,10 +91,14 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 		log.Info().Str("from", tcpConn.RemoteAddr().String()).Msg("server new accept")
 
 		serverConn := NewServerConn(tcpConn, s.key, s.handler, config.GetInstance().NoDelay)
+		s.ClientConns[tcpConn.RemoteAddr().String()] = serverConn
 		log.Info().Int("conn_size", len(s.Conns)).
 			Int("reverse_size", len(s.ConnsReverse)).
+			Int("client_conn_size", len(s.ClientConns)).
 			Str("from", tcpConn.RemoteAddr().String()).Msg("server start to read from connection")
 		//start to read pkt from connection
+
+		go serverConn.ProcessWrite()
 		go serverConn.run(func() {
 			s.RemoveConnByConnPointer(serverConn.conn)
 			log.Warn().Str("from", serverConn.conn.RemoteAddr().String()).
@@ -122,8 +128,8 @@ func (s *Server) DeleteDeadConn(dst string) {
 		}
 	}
 
-	log.Warn().Str("dest", dst).Int("conn_size", len(s.Conns)).
-		Int("reverse_size", len(s.ConnsReverse)).Msg("delete dead conn")
+	log.Warn().Str("dest", dst).Int("conn_size", len(s.Conns)).Int("reverse_size", len(s.ConnsReverse)).
+		Int("client_conn_size", len(s.ClientConns)).Msg("delete dead conn")
 }
 
 func (s *Server) SetConns(dst string, conn *net.TCPConn) {
@@ -134,13 +140,16 @@ func (s *Server) SetConns(dst string, conn *net.TCPConn) {
 			return
 		}
 
-		serverConn := NewServerConn(conn, s.key, s.handler, config.GetInstance().NoDelay)
+		// serverConn := NewServerConn(conn, s.key, s.handler, config.GetInstance().NoDelay)
 		//Urgly 应该保证连接只run一下，只为了writebuf里面的内容可以正确的被处理，现在run了两次, 应该把读和写都统一在一个对象里管理
-		go serverConn.ProcessWrite()
+		serverConn := s.ClientConns[conn.RemoteAddr().String()]
+
+		// go serverConn.ProcessWrite()
 		s.Conns[dst] = serverConn
 		s.ConnsReverse[conn] = dst
 	} else {
 		if v.conn == nil {
+			v.Stop()
 			delete(s.Conns, dst)
 		}
 	}
@@ -154,4 +163,6 @@ func (s *Server) RemoveConnByConnPointer(conn *net.TCPConn) {
 		delete(s.Conns, dst)
 		delete(s.ConnsReverse, conn)
 	}
+
+	delete(s.ClientConns, conn.RemoteAddr().String())
 }

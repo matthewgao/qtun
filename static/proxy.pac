@@ -7,6 +7,10 @@ var proxy = "SOCKS5 10.4.4.2:2080; DIRECT;";
 
 var rules = [
   "||ip138.com^",
+  "||solidot.org^",
+  "||shadowsocks.be^",
+  "||gnews.org^",
+  "||ssl.gstatic.com^",
   "||dailymail.co.uk^",
   "||docker.com^",
   "||googleapis.com^",
@@ -6688,7 +6692,6 @@ var rules = [
   "@@||connectivitycheck.gstatic.com",
   "@@||csi.gstatic.com",
   "@@||fonts.gstatic.com",
-  "@@||ssl.gstatic.com",
   "@@||haosou.com",
   "@@||ip.cn",
   "@@||jike.com",

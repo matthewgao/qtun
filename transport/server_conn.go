@@ -45,6 +45,7 @@ func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler, noDelay b
 		buf:       make([]byte, 65536),
 		writeBuf:  &bytes.Buffer{},
 		chanWrite: make(chan []byte, 4096),
+		chanClose: make(chan bool, 1),
 		noDelay:   noDelay,
 	}
 }
@@ -232,7 +233,7 @@ func (cc *ServerConn) ProcessWrite() (err error) {
 			if stop {
 				log.Info().Err(err).Str("client_addr", cc.conn.RemoteAddr().String()).
 					Msg("ServerConn::ProcessWrite stop")
-				return err
+				return nil
 			}
 		}
 

@@ -42,9 +42,9 @@ func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler, noDelay b
 		key:       key,
 		handler:   handler,
 		nonce:     make([]byte, 12),
-		buf:       make([]byte, 65536),
+		buf:       make([]byte, 65535),
 		writeBuf:  &bytes.Buffer{},
-		chanWrite: make(chan []byte, 4096),
+		chanWrite: make(chan []byte, 65535),
 		chanClose: make(chan bool, 1),
 		noDelay:   noDelay,
 	}

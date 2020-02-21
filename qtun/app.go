@@ -107,6 +107,13 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 					break
 				}
 
+				if conns == nil {
+					log.Info().Int("workder", workerNum).Str("src", src).
+						Str("dst", dst).
+						Msg("FetchAndProcessTunPkt::has route but no connection, packet dropped")
+					break
+				}
+
 				keys := []string{}
 				for k := range conns {
 					keys = append(keys, k)

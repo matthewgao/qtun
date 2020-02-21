@@ -101,7 +101,11 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 		go serverConn.ProcessWrite()
 		go serverConn.run(func() {
 			s.RemoveConnByConnPointer(serverConn.conn)
-			log.Warn().Str("from", serverConn.conn.RemoteAddr().String()).
+			addr := "nil"
+			if serverConn.conn != nil {
+				addr = serverConn.conn.RemoteAddr().String()
+			}
+			log.Warn().Str("from", addr).
 				Interface("alive_conns", s.Conns).Msg("server read thread exit")
 		})
 	}

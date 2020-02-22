@@ -47,7 +47,7 @@ func (c *Client) Start() {
 		conn.SetHander(c.handler)
 
 		go conn.run()
-		time.Sleep(time.Millisecond * 200)
+		time.Sleep(time.Millisecond * 800)
 
 		connected := false
 		for index := 0; index < 10; index++ {
@@ -60,7 +60,7 @@ func (c *Client) Start() {
 
 		if connected {
 			c.conns[connIndex] = conn
-			go c.conns[connIndex].runRead()
+			// go c.conns[connIndex].runRead()
 		} else {
 			log.Warn().Str("server_addr", c.remoteAddr).
 				Msg("fail to connect to the server after 10 times retry")

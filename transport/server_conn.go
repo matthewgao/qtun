@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/cipher"
-	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -69,7 +68,7 @@ func (sc *ServerConn) run(cleanup func()) {
 	sc.conn.SetWriteBuffer(1024 * 1024)
 	sc.conn.SetNoDelay(sc.noDelay) // close it, and see if the bandwidth can be increased
 
-	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024)
+	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*2)
 	for {
 		data, err := sc.read()
 		//FIXME: if it's EOF then need to exit, if it's not should continue
@@ -167,6 +166,11 @@ func (cc *ServerConn) write(data []byte) error {
 		return fmt.Errorf("no connection")
 	}
 
+	if len(data) > 1600 {
+		log.Warn().Int("data_size", len(data)).
+			Msg("write data size gt 1600")
+	}
+
 	log.Debug().Int("data_size", len(data)).
 		Msg("write data size")
 
@@ -199,11 +203,12 @@ func (cc *ServerConn) write(data []byte) error {
 			return err
 		}
 	} else {
-		cc.nonce = make([]byte, cc.aesgcm.NonceSize())
-		_, err = io.ReadFull(crand.Reader, cc.nonce)
-		if err != nil {
-			return err
-		}
+		// cc.nonce = make([]byte, cc.aesgcm.NonceSize())
+		cc.nonce = []byte("xxxxxxxxxxxx")
+		// _, err = io.ReadFull(crand.Reader, cc.nonce)
+		// if err != nil {
+		// 	return err
+		// }
 		data2 := cc.aesgcm.Seal(nil, cc.nonce, data, nil)
 		dataLen := uint16(len(data2))
 		err = binary.Write(cc.writeBuf, binary.LittleEndian, dataLen)
@@ -234,7 +239,9 @@ func (cc *ServerConn) Write(data []byte) {
 }
 
 func (cc *ServerConn) WriteNow(data []byte) error {
-	return cc.write(data)
+	// return cc.write(data)
+	cc.chanWrite <- data
+	return nil
 }
 
 func (sc *ServerConn) SendPacket(pkt iface.PacketIP) {

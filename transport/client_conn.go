@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/cipher"
-	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -82,6 +81,10 @@ func (this *ClientConn) tryConnect() error {
 
 	this.conn.SetReadBuffer(1024 * 1024)
 	this.conn.SetWriteBuffer(1024 * 1024)
+
+	// this.conn.SetReadBuffer(65535)
+	// this.conn.SetWriteBuffer(65535)
+
 	this.conn.SetNoDelay(this.noDelay)
 	this.conn.SetKeepAlive(true)
 	this.conn.SetKeepAlivePeriod(time.Second * 10)
@@ -215,6 +218,12 @@ func (this *ClientConn) write(data []byte) error {
 	if this.conn == nil {
 		return fmt.Errorf("no connection")
 	}
+
+	if len(data) > 1600 {
+		log.Warn().Int("data_size", len(data)).
+			Msg("write data size gt 1600")
+	}
+
 	log.Debug().Int("data_size", len(data)).
 		Msg("write data size")
 
@@ -246,11 +255,12 @@ func (this *ClientConn) write(data []byte) error {
 			return err
 		}
 	} else {
-		this.nonce = make([]byte, this.aesgcm.NonceSize())
-		_, err = io.ReadFull(crand.Reader, this.nonce)
-		if err != nil {
-			return err
-		}
+		// this.nonce = make([]byte, this.aesgcm.NonceSize())
+		this.nonce = []byte("xxxxxxxxxxxx")
+		// _, err = io.ReadFull(crand.Reader, this.nonce)
+		// if err != nil {
+		// 	return err
+		// }
 		data2 := this.aesgcm.Seal(nil, this.nonce, data, nil)
 		dataLen := uint16(len(data2))
 		err = binary.Write(this.buf, binary.LittleEndian, &dataLen)
@@ -282,7 +292,9 @@ func (this *ClientConn) Write(data []byte) {
 }
 
 func (this *ClientConn) WriteNow(data []byte) error {
-	return this.write(data)
+	// return this.write(data)
+	this.chanWrite <- data
+	return nil
 }
 
 func (sc *ClientConn) runRead() error {
@@ -305,7 +317,7 @@ func (sc *ClientConn) runRead() error {
 	sc.conn.SetWriteBuffer(1024 * 1024)
 	sc.conn.SetNoDelay(sc.noDelay)
 
-	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024)
+	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*2)
 	for {
 		// sc.conn.SetReadDeadline(time.Now().Add(time.Second * 5))
 		data, err := sc.read()

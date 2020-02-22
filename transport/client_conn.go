@@ -104,6 +104,31 @@ func (this *ClientConn) crypto() (err error) {
 	return
 }
 
+func (this *ClientConn) InitConn() error {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Error().Interface("err", err).Int("thread_index", this.index).
+				Str("server_addr", this.remoteAddr).
+				Msg("InitConn::client connection thread panic")
+		}
+		this.wg.Done()
+	}()
+
+	this.wg.Add(1)
+	err := this.crypto()
+	utils.POE(err)
+
+	err = this.tryConnect()
+	if err != nil {
+		log.Error().Err(err).Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
+			Msg("connect server fail")
+		return err
+	}
+
+	this.setConnected(true)
+	return nil
+}
+
 func (this *ClientConn) run() {
 	defer func() {
 		if err := recover(); err != nil {
@@ -115,8 +140,6 @@ func (this *ClientConn) run() {
 	}()
 
 	this.wg.Add(1)
-	err := this.crypto()
-	utils.POE(err)
 	for {
 		select {
 		case <-this.chanClose:
@@ -170,7 +193,7 @@ func (this *ClientConn) process() (err error) {
 			Msg("client conn closed")
 
 	}()
-	this.setConnected(true)
+	// this.setConnected(true)
 
 	log.Info().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
 		Msg("success connect to server")

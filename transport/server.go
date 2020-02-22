@@ -112,6 +112,8 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 }
 
 func (s *Server) GetConnsByAddr(dst string) *ServerConn {
+	s.Mtx.Lock()
+	defer s.Mtx.Unlock()
 	//No need to add lock
 	conn, ok := s.Conns[dst]
 	if ok {

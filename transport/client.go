@@ -116,17 +116,13 @@ func (c *Client) ConnectWait() {
 func (c *Client) WriteNow(data []byte) {
 	if c.threads == 1 {
 		conn := c.conns[0]
-		if err := conn.WriteNow(data); err != nil {
-			conn.Write(data)
-		}
+		conn.Write(data)
 		return
 	}
 	serial := atomic.AddInt64(&c.serial, 1)
 	next := int(serial) % c.threads
 	conn := c.conns[next]
-	if err := conn.WriteNow(data); err != nil {
-		conn.Write(data)
-	}
+	conn.Write(data)
 }
 
 func (c *Client) Write(data []byte) {
@@ -153,7 +149,8 @@ func (c *Client) ping() {
 		}
 	}()
 
-	tickerPing := time.NewTicker(time.Second * 2)
+	c.SendAllPing()
+	tickerPing := time.NewTicker(time.Second * 1)
 	defer tickerPing.Stop()
 	for range tickerPing.C {
 		c.SendAllPing()
@@ -201,14 +198,15 @@ func (c *Client) SendPing(conn *ClientConn) {
 	data, err := proto.Marshal(env)
 	utils.POE(err)
 
-	conn.WriteNow(data)
+	conn.Write(data)
 }
 
 func (c *Client) SendPacket(pkt iface.PacketIP) {
-	data, _ := proto.Marshal(&protocol.Envelope{
+	data, err := proto.Marshal(&protocol.Envelope{
 		Type: &protocol.Envelope_Packet{
 			Packet: &protocol.MessagePacket{Payload: pkt},
 		},
 	})
+	utils.POE(err)
 	c.Write(data)
 }

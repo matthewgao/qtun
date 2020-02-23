@@ -105,8 +105,8 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 			if serverConn.conn != nil {
 				addr = serverConn.conn.RemoteAddr().String()
 			}
-			log.Warn().Str("from", addr).
-				Interface("alive_conns", s.Conns).Msg("server read thread exit")
+			// log.Warn().Str("from", addr).Interface("alive_conns", s.Conns).Msg("server read thread exit")
+			log.Warn().Str("from", addr).Msg("server read thread exit")
 		})
 	}
 }

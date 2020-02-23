@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/cipher"
+	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -26,6 +27,7 @@ type ServerConn struct {
 	nonce     []byte
 	buf       []byte
 	aesgcm    cipher.AEAD
+	aesgcmwrt cipher.AEAD
 	handler   GrpcHandler
 	reader    *bufio.Reader
 	writeBuf  *bytes.Buffer
@@ -42,8 +44,8 @@ func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler, noDelay b
 		handler:   handler,
 		nonce:     make([]byte, 12),
 		buf:       make([]byte, 65536),
-		writeBuf:  &bytes.Buffer{},
-		chanWrite: make(chan []byte, 4096),
+		writeBuf:  bytes.NewBuffer(make([]byte, 4096)),
+		chanWrite: make(chan []byte, 2),
 		chanClose: make(chan bool, 1),
 		noDelay:   noDelay,
 	}
@@ -64,11 +66,11 @@ func (sc *ServerConn) run(cleanup func()) {
 	err = sc.crypto()
 	utils.POE(err)
 
-	sc.conn.SetReadBuffer(1024 * 1024)
-	sc.conn.SetWriteBuffer(1024 * 1024)
+	sc.conn.SetReadBuffer(1024 * 1024 * 8)
+	sc.conn.SetWriteBuffer(1024 * 1024 * 8)
 	sc.conn.SetNoDelay(sc.noDelay) // close it, and see if the bandwidth can be increased
 
-	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*2)
+	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*8)
 	for {
 		data, err := sc.read()
 		//FIXME: if it's EOF then need to exit, if it's not should continue
@@ -102,6 +104,7 @@ func (sc *ServerConn) crypto() error {
 	}
 	var err error
 	sc.aesgcm, err = makeAES128GCM(sc.key)
+	sc.aesgcmwrt, err = makeAES128GCM(sc.key)
 	return err
 }
 
@@ -116,45 +119,50 @@ func (sc *ServerConn) read() ([]byte, error) {
 	var err error
 	var secure uint8 = 0
 
-	reader := sc.reader
-	err = binary.Read(reader, binary.LittleEndian, &secure)
+	err = binary.Read(sc.reader, binary.LittleEndian, &secure)
 	if err != nil {
+		log.Warn().Err(err).Uint8("secure", secure).Msg("ServerConn::read secure fail")
 		return nil, err
 	}
 
-	var magicNum uint16
-	err = binary.Read(reader, binary.LittleEndian, &magicNum)
-	if err != nil {
-		return nil, err
-	}
+	// var magicNum uint16
+	// err = binary.Read(sc.reader, binary.LittleEndian, &magicNum)
+	// if err != nil {
+	// 	log.Warn().Err(err).Uint16("magicNum", magicNum).Msg("ServerConn::read magicNum fail")
+	// 	return nil, err
+	// }
 
 	var dataLen uint16 = 0
-	err = binary.Read(reader, binary.LittleEndian, &dataLen)
+	err = binary.Read(sc.reader, binary.LittleEndian, &dataLen)
 	if err != nil {
+		log.Warn().Err(err).Uint16("dataLen", dataLen).Msg("ServerConn::read dataLen fail")
 		return nil, err
 	}
 
-	log.Debug().Uint16("dataLen", dataLen).Uint16("magic_num", magicNum).Msg("ServerConn::read datelen")
+	// log.Debug().Uint16("dataLen", dataLen).Uint16("magic_num", magicNum).Msg("ServerConn::read datelen")
 
 	// sc.buf = make([]byte, dataLen)
-	_, err = io.ReadFull(reader, sc.buf[:dataLen])
-	// _, err = io.ReadFull(reader, sc.buf)
+	n, err := io.ReadFull(sc.reader, sc.buf[:dataLen])
+	// _, err = io.ReadFull(sc.reader, sc.buf)
 	if err != nil {
+		log.Warn().Err(err).Int("data", n).Msg("ServerConn::read data fail")
 		return nil, err
 	}
 	if secure == 0 {
 		return sc.buf[:dataLen], err
 	} else {
-		sc.nonce = make([]byte, sc.aesgcm.NonceSize())
-		_, err = io.ReadFull(reader, sc.nonce)
+		nonce := make([]byte, sc.aesgcm.NonceSize())
+		_, err = io.ReadFull(sc.reader, nonce)
 		if err != nil {
+			log.Warn().Err(err).Bytes("nonce", nonce).Msg("ServerConn::read nonce fail")
 			return nil, err
 		}
-		plain, err := sc.aesgcm.Open(nil, sc.nonce, sc.buf[:dataLen], nil)
+		// aesgcm, _ := makeAES128GCM(sc.key)
+		plain, err := sc.aesgcm.Open(nil, nonce, sc.buf[:dataLen], nil)
 		if err != nil {
 			// return nil, err
-			log.Error().Str("plain", string(plain)).Str("nonce", string(sc.nonce)).Int("datalen", int(dataLen)).Err(err).
-				Int("bufsize", len(sc.buf)).Uint16("magic_num", magicNum).Msg("ServerConn::runRead aesgcm open fail")
+			log.Error().Str("plain", string(plain)).Str("nonce", string(nonce)).Int("datalen", int(dataLen)).Err(err).
+				Int("bufsize", len(sc.buf)).Bytes("data", sc.buf[:dataLen]).Msg("ServerConn::runRead aesgcm open fail")
 			return nil, ErrCiperNotMatch
 		}
 		return plain, nil
@@ -167,8 +175,7 @@ func (cc *ServerConn) write(data []byte) error {
 	}
 
 	if len(data) > 1600 {
-		log.Warn().Int("data_size", len(data)).
-			Msg("write data size gt 1600")
+		log.Warn().Int("data_size", len(data)).Msg("write data size gt 1600")
 	}
 
 	log.Debug().Int("data_size", len(data)).
@@ -186,11 +193,11 @@ func (cc *ServerConn) write(data []byte) error {
 		return err
 	}
 
-	magicNum := uint16(22222)
-	err = binary.Write(cc.writeBuf, binary.LittleEndian, magicNum)
-	if err != nil {
-		return err
-	}
+	// magicNum := uint16(22222)
+	// err = binary.Write(cc.writeBuf, binary.LittleEndian, magicNum)
+	// if err != nil {
+	// 	return err
+	// }
 
 	if secure == 0 {
 		dataLen := uint16(len(data))
@@ -203,13 +210,14 @@ func (cc *ServerConn) write(data []byte) error {
 			return err
 		}
 	} else {
-		// cc.nonce = make([]byte, cc.aesgcm.NonceSize())
-		cc.nonce = []byte("xxxxxxxxxxxx")
-		// _, err = io.ReadFull(crand.Reader, cc.nonce)
-		// if err != nil {
-		// 	return err
-		// }
-		data2 := cc.aesgcm.Seal(nil, cc.nonce, data, nil)
+		nonce := make([]byte, cc.aesgcm.NonceSize())
+		// nonce := []byte("xxxxxxxxxxxx")
+		_, err = io.ReadFull(crand.Reader, nonce)
+		if err != nil {
+			return err
+		}
+
+		data2 := cc.aesgcmwrt.Seal(nil, nonce, data, nil)
 		dataLen := uint16(len(data2))
 		err = binary.Write(cc.writeBuf, binary.LittleEndian, dataLen)
 		if err != nil {
@@ -219,7 +227,7 @@ func (cc *ServerConn) write(data []byte) error {
 		if err != nil {
 			return err
 		}
-		_, err = cc.writeBuf.Write(cc.nonce)
+		_, err = cc.writeBuf.Write(nonce)
 		if err != nil {
 			return err
 		}
@@ -227,7 +235,9 @@ func (cc *ServerConn) write(data []byte) error {
 
 	log.Debug().Int("writeBuf_size", cc.writeBuf.Len()).
 		Msg("write data size before send")
+
 	if err == nil {
+		// var n int64
 		_, err = cc.writeBuf.WriteTo(cc.conn)
 	}
 	return err
@@ -287,19 +297,6 @@ func (cc *ServerConn) ProcessWrite() (err error) {
 		}
 	}
 }
-
-// func (this *ServerConn) WriteTrunc(data []byte) error {
-// 	size := 1522
-// 	i := 0
-// 	for ; i < len(data)/size; i++ {
-// 		err := this.write(data[size*i : i*size+size])
-// 		if err != nil {
-// 			return err
-// 		}
-// 	}
-
-// 	return this.write(data[i*size:])
-// }
 
 func (this *ServerConn) Stop() {
 	this.chanClose <- true

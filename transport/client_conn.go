@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/cipher"
+	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -25,6 +26,7 @@ type ClientConn struct {
 	index      int
 	mutex      sync.RWMutex
 	aesgcm     cipher.AEAD
+	aesgcmwrt  cipher.AEAD
 	chanWrite  chan []byte
 	chanClose  chan bool
 	wg         sync.WaitGroup
@@ -43,13 +45,14 @@ func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup, 
 		remoteAddr: remoteAddr,
 		key:        key,
 		index:      index,
-		chanWrite:  make(chan []byte, 256),
+		chanWrite:  make(chan []byte, 2),
 		chanClose:  make(chan bool),
 		parentWG:   parentWG,
 		nonce:      make([]byte, 12),
-		buf:        &bytes.Buffer{},
-		readBuf:    make([]byte, 65535),
-		noDelay:    noDelay,
+		// buf:        &bytes.Buffer{},
+		buf:     bytes.NewBuffer(make([]byte, 4096)),
+		readBuf: make([]byte, 65535),
+		noDelay: noDelay,
 	}
 }
 
@@ -79,11 +82,8 @@ func (this *ClientConn) tryConnect() error {
 		return err
 	}
 
-	this.conn.SetReadBuffer(1024 * 1024)
-	this.conn.SetWriteBuffer(1024 * 1024)
-
-	// this.conn.SetReadBuffer(65535)
-	// this.conn.SetWriteBuffer(65535)
+	this.conn.SetReadBuffer(1024 * 1024 * 8)
+	this.conn.SetWriteBuffer(1024 * 1024 * 8)
 
 	this.conn.SetNoDelay(this.noDelay)
 	this.conn.SetKeepAlive(true)
@@ -101,6 +101,7 @@ func (this *ClientConn) crypto() (err error) {
 	}
 
 	this.aesgcm, err = makeAES128GCM(this.key)
+	this.aesgcmwrt, err = makeAES128GCM(this.key)
 	return
 }
 
@@ -111,10 +112,8 @@ func (this *ClientConn) InitConn() error {
 				Str("server_addr", this.remoteAddr).
 				Msg("InitConn::client connection thread panic")
 		}
-		this.wg.Done()
 	}()
 
-	this.wg.Add(1)
 	err := this.crypto()
 	utils.POE(err)
 
@@ -155,10 +154,10 @@ func (this *ClientConn) run() {
 		} else {
 			go this.process()
 			err = this.runRead()
-			if err == nil {
+			if err != nil {
 				log.Error().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
 					Msg("client exit from process ")
-				break
+				// break
 			}
 		}
 	}
@@ -198,16 +197,15 @@ func (this *ClientConn) process() (err error) {
 	log.Info().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
 		Msg("success connect to server")
 
-	pingTicker := time.NewTicker(time.Second * 1)
-	defer pingTicker.Stop()
+	// pingTicker := time.NewTicker(time.Second * 1)
+	// defer pingTicker.Stop()
 	for {
 		select {
 		case <-this.chanClose:
 			return nil
-		case <-pingTicker.C:
-			// err = this.write(nilBuf)
+		// case <-pingTicker.C:
+		// err = this.write(nilBuf)
 		case buf := <-this.chanWrite:
-			// err = this.WriteTrunc(buf)
 			err = this.write(buf)
 		}
 
@@ -219,36 +217,16 @@ func (this *ClientConn) process() (err error) {
 	}
 }
 
-// func (this *ClientConn) WriteTrunc(data []byte) error {
-// 	size := 1522
-// 	i := 0
-// 	log.Info().Int("data_size", len(data)).
-// 		Msg("WriteTrunc data size")
-
-// 	for ; i < len(data)/size; i++ {
-// 		err := this.write(data[size*i : i*size+size])
-// 		if err != nil {
-// 			log.Error().Err(err).Str("server_addr", this.remoteAddr).
-// 				Msg("WriteTrunc fail")
-// 			return err
-// 		}
-// 	}
-
-// 	return this.write(data[i*size:])
-// }
-
 func (this *ClientConn) write(data []byte) error {
 	if this.conn == nil {
 		return fmt.Errorf("no connection")
 	}
 
 	if len(data) > 1600 {
-		log.Warn().Int("data_size", len(data)).
-			Msg("write data size gt 1600")
+		log.Warn().Int("data_size", len(data)).Msg("write data size gt 1600")
 	}
 
-	log.Debug().Int("data_size", len(data)).
-		Msg("write data size")
+	log.Debug().Int("data_size", len(data)).Msg("write data size")
 
 	var err error
 	this.buf.Reset()
@@ -261,11 +239,11 @@ func (this *ClientConn) write(data []byte) error {
 		return err
 	}
 
-	magicNum := uint16(11111)
-	err = binary.Write(this.buf, binary.LittleEndian, magicNum)
-	if err != nil {
-		return err
-	}
+	// magicNum := uint16(11111)
+	// err = binary.Write(this.buf, binary.LittleEndian, magicNum)
+	// if err != nil {
+	// 	return err
+	// }
 
 	if secure == 0 {
 		dataLen := uint16(len(data))
@@ -278,29 +256,40 @@ func (this *ClientConn) write(data []byte) error {
 			return err
 		}
 	} else {
-		// this.nonce = make([]byte, this.aesgcm.NonceSize())
-		this.nonce = []byte("xxxxxxxxxxxx")
-		// _, err = io.ReadFull(crand.Reader, this.nonce)
-		// if err != nil {
-		// 	return err
-		// }
-		data2 := this.aesgcm.Seal(nil, this.nonce, data, nil)
+		nonce := make([]byte, this.aesgcm.NonceSize())
+		// nonce := []byte("xxxxxxxxxxxx")
+		_, err = io.ReadFull(crand.Reader, nonce)
+		if err != nil {
+			return err
+		}
+
+		// aesgcmwrt, _ := makeAES128GCM(this.key)
+
+		data2 := this.aesgcmwrt.Seal(nil, nonce, data, nil)
 		dataLen := uint16(len(data2))
 		err = binary.Write(this.buf, binary.LittleEndian, &dataLen)
 		if err != nil {
+			log.Error().Err(err).Uint16("datalen", dataLen).Msg("ClientConn::write data len fail")
 			return err
 		}
-		_, err = this.buf.Write(data2)
+		n, err := this.buf.Write(data2)
 		if err != nil {
+			log.Error().Err(err).Int("dataSize", len(data2)).Int("writeSize", n).Msg("ClientConn::write data fail")
 			return err
 		}
-		_, err = this.buf.Write(this.nonce)
+
+		if n != len(data2) {
+			log.Error().Int("dataSize", len(data2)).Int("writeSize", n).Msg("ClientConn::write is not eq data size")
+		}
+
+		_, err = this.buf.Write(nonce)
 		if err != nil {
+			log.Error().Err(err).Int("dataSize", len(data2)).Int("writeSize", n).Msg("ClientConn::write nonce fail")
 			return err
 		}
 	}
+
 	if err == nil {
-		// this.conn.SetReadDeadline(time.Now().Add(time.Second * 5))
 		_, err = this.buf.WriteTo(this.conn)
 	}
 	return err
@@ -336,20 +325,9 @@ func (sc *ClientConn) runRead() error {
 	err = sc.crypto()
 	utils.POE(err)
 
-	sc.conn.SetReadBuffer(1024 * 1024)
-	sc.conn.SetWriteBuffer(1024 * 1024)
-	sc.conn.SetNoDelay(sc.noDelay)
-
-	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*2)
+	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*8)
 	for {
-		// sc.conn.SetReadDeadline(time.Now().Add(time.Second * 5))
 		data, err := sc.read()
-
-		// if err == io.EOF {
-		// 	log.Error().Err(err).Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
-		// 		Msg("ClientConn::runRead conn read fail, connection is closed by server")
-		// 	return
-		// }
 
 		if err != nil {
 			log.Error().Err(err).Int("thread_index", sc.index).Str("server_addr", sc.remoteAddr).
@@ -383,11 +361,11 @@ func (sc *ClientConn) read() ([]byte, error) {
 		return nil, err
 	}
 
-	var magicNum uint16
-	err = binary.Read(reader, binary.LittleEndian, &magicNum)
-	if err != nil {
-		return nil, err
-	}
+	// var magicNum uint16
+	// err = binary.Read(reader, binary.LittleEndian, &magicNum)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	var dataLen uint16 = 0
 	err = binary.Read(reader, binary.LittleEndian, &dataLen)
@@ -395,9 +373,8 @@ func (sc *ClientConn) read() ([]byte, error) {
 		return nil, err
 	}
 
-	log.Debug().Uint16("dataLen", dataLen).Uint16("magic_num", magicNum).Msg("ClientConn::read datelen")
+	// log.Debug().Uint16("dataLen", dataLen).Uint16("magic_num", magicNum).Msg("ClientConn::read datelen")
 
-	// sc.readBuf = make([]byte, dataLen)
 	_, err = io.ReadFull(reader, sc.readBuf[:dataLen])
 	// _, err = io.ReadFull(reader, sc.readBuf)
 	if err != nil {
@@ -407,15 +384,16 @@ func (sc *ClientConn) read() ([]byte, error) {
 		return sc.readBuf[:dataLen], err
 	}
 
-	sc.nonce = make([]byte, sc.aesgcm.NonceSize())
-	_, err = io.ReadFull(reader, sc.nonce)
+	nonce := make([]byte, sc.aesgcm.NonceSize())
+	_, err = io.ReadFull(reader, nonce)
 	if err != nil {
 		return nil, err
 	}
-	plain, err := sc.aesgcm.Open(nil, sc.nonce, sc.readBuf[:dataLen], nil)
+
+	plain, err := sc.aesgcm.Open(nil, nonce, sc.readBuf[:dataLen], nil)
 	if err != nil {
-		log.Error().Str("plain", string(plain)).Str("nonce", string(sc.nonce)).Int("datalen", int(dataLen)).Err(err).
-			Int("bufsize", len(sc.readBuf)).Uint16("magic_num", magicNum).Msg("ClientConn::runRead aesgcm open fail")
+		log.Error().Str("plain", string(plain)).Str("nonce", string(nonce)).Int("datalen", int(dataLen)).Err(err).
+			Int("bufsize", len(sc.readBuf)).Bytes("data", sc.readBuf[:dataLen]).Msg("ClientConn::runRead aesgcm open fail")
 		return nil, err
 	}
 

@@ -14,6 +14,7 @@ func makeAES128GCM(key string) (cipher.AEAD, error) {
 		return nil, err
 	}
 	return cipher.NewGCM(block)
+	// return cipher.NewGCMWithNonceSize(block, 16)
 }
 
 func makeAES256GCM(key string) (cipher.AEAD, error) {

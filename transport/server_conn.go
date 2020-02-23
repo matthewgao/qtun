@@ -66,11 +66,11 @@ func (sc *ServerConn) readProcess(cleanup func()) {
 	err = sc.crypto()
 	utils.POE(err)
 
-	sc.conn.SetReadBuffer(1024 * 1024 * 8)
-	sc.conn.SetWriteBuffer(1024 * 1024 * 8)
+	sc.conn.SetReadBuffer(BUF_SIZE)
+	sc.conn.SetWriteBuffer(BUF_SIZE)
 	sc.conn.SetNoDelay(sc.noDelay) // close it, and see if the bandwidth can be increased
 
-	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*8)
+	sc.reader = bufio.NewReaderSize(sc.conn, BUF_SIZE)
 	for {
 		data, err := sc.read()
 		//FIXME: if it's EOF then need to exit, if it's not should continue

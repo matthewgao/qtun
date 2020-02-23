@@ -19,6 +19,8 @@ import (
 
 var nilBuf = make([]byte, 0)
 
+const BUF_SIZE = 1024 * 1024 * 1
+
 type ClientConn struct {
 	remoteAddr string
 	key        string
@@ -82,8 +84,8 @@ func (this *ClientConn) tryConnect() error {
 		return err
 	}
 
-	this.conn.SetReadBuffer(1024 * 1024 * 8)
-	this.conn.SetWriteBuffer(1024 * 1024 * 8)
+	this.conn.SetReadBuffer(BUF_SIZE)
+	this.conn.SetWriteBuffer(BUF_SIZE)
 
 	this.conn.SetNoDelay(this.noDelay)
 	this.conn.SetKeepAlive(true)
@@ -323,7 +325,7 @@ func (sc *ClientConn) readProcess() error {
 	err = sc.crypto()
 	utils.POE(err)
 
-	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*8)
+	sc.reader = bufio.NewReaderSize(sc.conn, BUF_SIZE)
 	for {
 		data, err := sc.read()
 

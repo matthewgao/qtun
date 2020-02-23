@@ -22,12 +22,12 @@ import (
 var ErrCiperNotMatch = fmt.Errorf("fail to match key")
 
 type ServerConn struct {
-	conn      *net.TCPConn
-	key       string
-	nonce     []byte
-	buf       []byte
-	aesgcm    cipher.AEAD
-	aesgcmwrt cipher.AEAD
+	conn *net.TCPConn
+	key  string
+	// nonce  []byte
+	buf    []byte
+	aesgcm cipher.AEAD
+	// aesgcmwrt cipher.AEAD
 	handler   GrpcHandler
 	reader    *bufio.Reader
 	writeBuf  *bytes.Buffer
@@ -39,10 +39,10 @@ type ServerConn struct {
 
 func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler, noDelay bool) *ServerConn {
 	return &ServerConn{
-		conn:      conn,
-		key:       key,
-		handler:   handler,
-		nonce:     make([]byte, 12),
+		conn:    conn,
+		key:     key,
+		handler: handler,
+		// nonce:     make([]byte, 12),
 		buf:       make([]byte, 65536),
 		writeBuf:  bytes.NewBuffer(make([]byte, 4096)),
 		chanWrite: make(chan []byte, 2),
@@ -51,7 +51,7 @@ func NewServerConn(conn *net.TCPConn, key string, handler GrpcHandler, noDelay b
 	}
 }
 
-func (sc *ServerConn) run(cleanup func()) {
+func (sc *ServerConn) readProcess(cleanup func()) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Error().Err(err.(error)).
@@ -104,7 +104,7 @@ func (sc *ServerConn) crypto() error {
 	}
 	var err error
 	sc.aesgcm, err = makeAES128GCM(sc.key)
-	sc.aesgcmwrt, err = makeAES128GCM(sc.key)
+	// sc.aesgcmwrt, err = makeAES128GCM(sc.key)
 	return err
 }
 
@@ -217,7 +217,7 @@ func (cc *ServerConn) write(data []byte) error {
 			return err
 		}
 
-		data2 := cc.aesgcmwrt.Seal(nil, nonce, data, nil)
+		data2 := cc.aesgcm.Seal(nil, nonce, data, nil)
 		dataLen := uint16(len(data2))
 		err = binary.Write(cc.writeBuf, binary.LittleEndian, dataLen)
 		if err != nil {
@@ -264,7 +264,7 @@ func (sc *ServerConn) SendPacket(pkt iface.PacketIP) {
 	sc.Write(data)
 }
 
-func (cc *ServerConn) ProcessWrite() (err error) {
+func (cc *ServerConn) writeProcess() (err error) {
 	defer func() {
 		if perr := recover(); perr != nil {
 			err = fmt.Errorf("server process write panic: %s", perr)

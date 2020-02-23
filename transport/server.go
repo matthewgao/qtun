@@ -67,9 +67,9 @@ func (s *Server) StartListen() {
 	}
 }
 
-func (s *Server) listen(tcpAddr *net.TCPAddr) error {
+func (this *Server) listen(tcpAddr *net.TCPAddr) error {
 	defer func() {
-		log.Info().Str("addr", s.publicAddr).Msg("server listener closed")
+		log.Info().Str("addr", this.publicAddr).Msg("server listener closed")
 	}()
 
 	listener, err := net.ListenTCP("tcp", tcpAddr)
@@ -84,23 +84,23 @@ func (s *Server) listen(tcpAddr *net.TCPAddr) error {
 				continue
 			}
 
-			log.Warn().Err(err).Str("addr", s.publicAddr).Msg("server accept fail")
+			log.Warn().Err(err).Str("addr", this.publicAddr).Msg("server accept fail")
 			continue
 		}
 
 		log.Info().Str("from", tcpConn.RemoteAddr().String()).Msg("server new accept")
 
-		serverConn := NewServerConn(tcpConn, s.key, s.handler, config.GetInstance().NoDelay)
-		s.ClientConns[tcpConn.RemoteAddr().String()] = serverConn
-		log.Info().Int("conn_size", len(s.Conns)).
-			Int("reverse_size", len(s.ConnsReverse)).
-			Int("client_conn_size", len(s.ClientConns)).
+		serverConn := NewServerConn(tcpConn, this.key, this.handler, config.GetInstance().NoDelay)
+		this.ClientConns[tcpConn.RemoteAddr().String()] = serverConn
+		log.Info().Int("conn_size", len(this.Conns)).
+			Int("reverse_size", len(this.ConnsReverse)).
+			Int("client_conn_size", len(this.ClientConns)).
 			Str("from", tcpConn.RemoteAddr().String()).Msg("server start to read from connection")
 		//start to read pkt from connection
 
-		go serverConn.ProcessWrite()
-		go serverConn.run(func() {
-			s.RemoveConnByConnPointer(serverConn.conn)
+		go serverConn.writeProcess()
+		go serverConn.readProcess(func() {
+			this.RemoveConnByConnPointer(serverConn.conn)
 			addr := "nil"
 			if serverConn.conn != nil {
 				addr = serverConn.conn.RemoteAddr().String()

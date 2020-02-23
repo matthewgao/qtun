@@ -26,18 +26,18 @@ type ClientConn struct {
 	index      int
 	mutex      sync.RWMutex
 	aesgcm     cipher.AEAD
-	aesgcmwrt  cipher.AEAD
-	chanWrite  chan []byte
-	chanClose  chan bool
-	wg         sync.WaitGroup
-	parentWG   *sync.WaitGroup
-	connected  bool
-	nonce      []byte
-	buf        *bytes.Buffer
-	readBuf    []byte
-	handler    GrpcHandler
-	reader     *bufio.Reader
-	noDelay    bool
+	// aesgcmwrt  cipher.AEAD
+	chanWrite chan []byte
+	chanClose chan bool
+	wg        sync.WaitGroup
+	parentWG  *sync.WaitGroup
+	connected bool
+	// nonce     []byte
+	buf     *bytes.Buffer
+	readBuf []byte
+	handler GrpcHandler
+	reader  *bufio.Reader
+	noDelay bool
 }
 
 func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup, noDelay bool) *ClientConn {
@@ -48,7 +48,7 @@ func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup, 
 		chanWrite:  make(chan []byte, 2),
 		chanClose:  make(chan bool),
 		parentWG:   parentWG,
-		nonce:      make([]byte, 12),
+		// nonce:      make([]byte, 12),
 		// buf:        &bytes.Buffer{},
 		buf:     bytes.NewBuffer(make([]byte, 4096)),
 		readBuf: make([]byte, 65535),
@@ -101,7 +101,7 @@ func (this *ClientConn) crypto() (err error) {
 	}
 
 	this.aesgcm, err = makeAES128GCM(this.key)
-	this.aesgcmwrt, err = makeAES128GCM(this.key)
+	// this.aesgcmwrt, err = makeAES128GCM(this.key)
 	return
 }
 
@@ -152,8 +152,8 @@ func (this *ClientConn) run() {
 				Msg("connect server fail")
 			time.Sleep(time.Millisecond * 1000)
 		} else {
-			go this.process()
-			err = this.runRead()
+			go this.writeProcess()
+			err = this.readProcess()
 			if err != nil {
 				log.Error().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
 					Msg("client exit from process ")
@@ -177,7 +177,7 @@ func (this *ClientConn) setConnected(value bool) {
 	this.mutex.Unlock()
 }
 
-func (this *ClientConn) process() (err error) {
+func (this *ClientConn) writeProcess() (err error) {
 	defer func() {
 		if perr := recover(); perr != nil {
 			err = fmt.Errorf("client process panic: %s", perr)
@@ -263,9 +263,7 @@ func (this *ClientConn) write(data []byte) error {
 			return err
 		}
 
-		// aesgcmwrt, _ := makeAES128GCM(this.key)
-
-		data2 := this.aesgcmwrt.Seal(nil, nonce, data, nil)
+		data2 := this.aesgcm.Seal(nil, nonce, data, nil)
 		dataLen := uint16(len(data2))
 		err = binary.Write(this.buf, binary.LittleEndian, &dataLen)
 		if err != nil {
@@ -309,7 +307,7 @@ func (this *ClientConn) WriteNow(data []byte) error {
 	return nil
 }
 
-func (sc *ClientConn) runRead() error {
+func (sc *ClientConn) readProcess() error {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Error().Err(err.(error)).Int("thread_index", sc.index).

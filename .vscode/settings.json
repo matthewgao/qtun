@@ -1,9 +1,6 @@
 {
     "go.formatTool": "goimports",
-    "go.useLanguageServer": true,
-    "go.languageServerFlags": [
-        "-rpc.trace"
-    ],
+    "go.useLanguageServer": false,
     "go.languageServerExperimentalFeatures": {
         "format": true,
         "autoComplete": true,

@@ -85,6 +85,9 @@ Examples:
   Client: sudo ./qtun qt --key "hahaha" --remote_addrs "8.8.8.80:8080" --ip "10.4.4.3/24"
 ```
 
+## Performance
+* 405 Mbits/sec
+
 ## Misc
 * You can set goproxy to accelerate module download progress `go env -w GOPROXY=https://goproxy.io,direct`
 * Git with proxy `git config --global http.proxy 'socks5://10.4.4.2:2080'`

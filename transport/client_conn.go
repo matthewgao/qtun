@@ -28,18 +28,16 @@ type ClientConn struct {
 	index      int
 	mutex      sync.RWMutex
 	aesgcm     cipher.AEAD
-	// aesgcmwrt  cipher.AEAD
-	chanWrite chan []byte
-	chanClose chan bool
-	wg        sync.WaitGroup
-	parentWG  *sync.WaitGroup
-	connected bool
-	// nonce     []byte
-	buf     *bytes.Buffer
-	readBuf []byte
-	handler GrpcHandler
-	reader  *bufio.Reader
-	noDelay bool
+	chanWrite  chan []byte
+	chanClose  chan bool
+	wg         sync.WaitGroup
+	parentWG   *sync.WaitGroup
+	connected  bool
+	buf        *bytes.Buffer
+	readBuf    []byte
+	handler    GrpcHandler
+	reader     *bufio.Reader
+	noDelay    bool
 }
 
 func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup, noDelay bool) *ClientConn {
@@ -50,11 +48,9 @@ func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup, 
 		chanWrite:  make(chan []byte, 2),
 		chanClose:  make(chan bool),
 		parentWG:   parentWG,
-		// nonce:      make([]byte, 12),
-		// buf:        &bytes.Buffer{},
-		buf:     bytes.NewBuffer(make([]byte, 4096)),
-		readBuf: make([]byte, 65535),
-		noDelay: noDelay,
+		buf:        bytes.NewBuffer(make([]byte, 4096)),
+		readBuf:    make([]byte, 65535),
+		noDelay:    noDelay,
 	}
 }
 
@@ -103,7 +99,6 @@ func (this *ClientConn) crypto() (err error) {
 	}
 
 	this.aesgcm, err = makeAES128GCM(this.key)
-	// this.aesgcmwrt, err = makeAES128GCM(this.key)
 	return
 }
 
@@ -194,7 +189,6 @@ func (this *ClientConn) writeProcess() (err error) {
 			Msg("client conn closed")
 
 	}()
-	// this.setConnected(true)
 
 	log.Info().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
 		Msg("success connect to server")
@@ -303,11 +297,10 @@ func (this *ClientConn) Write(data []byte) {
 	this.chanWrite <- data
 }
 
-func (this *ClientConn) WriteNow(data []byte) error {
-	// return this.write(data)
-	this.chanWrite <- data
-	return nil
-}
+// func (this *ClientConn) WriteNow(data []byte) error {
+// 	this.chanWrite <- data
+// 	return nil
+// }
 
 func (sc *ClientConn) readProcess() error {
 	defer func() {

@@ -7,9 +7,8 @@ type Config struct {
 	TransportThreads int    `default:"1"`
 	Ip               string `default:"10.237.0.1/16"`
 	Mtu              int    `default:"1500"`
-	// Verbose          bool   `default:"0"`
-	ServerMode bool `default:"0"`
-	NoDelay    bool
+	ServerMode       bool   `default:"0"`
+	NoDelay          bool
 }
 
 var GLOBAL_CONFIG *Config = nil

@@ -248,11 +248,11 @@ func (cc *ServerConn) Write(data []byte) {
 	cc.chanWrite <- data
 }
 
-func (cc *ServerConn) WriteNow(data []byte) error {
-	// return cc.write(data)
-	cc.chanWrite <- data
-	return nil
-}
+// func (cc *ServerConn) WriteNow(data []byte) error {
+// 	// return cc.write(data)
+// 	cc.chanWrite <- data
+// 	return nil
+// }
 
 func (sc *ServerConn) SendPacket(pkt iface.PacketIP) {
 	data, _ := proto.Marshal(&protocol.Envelope{

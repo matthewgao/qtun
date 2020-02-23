@@ -113,17 +113,17 @@ func (c *Client) ConnectWait() {
 }
 
 //随机找一个连接发送请求
-func (c *Client) WriteNow(data []byte) {
-	if c.threads == 1 {
-		conn := c.conns[0]
-		conn.Write(data)
-		return
-	}
-	serial := atomic.AddInt64(&c.serial, 1)
-	next := int(serial) % c.threads
-	conn := c.conns[next]
-	conn.Write(data)
-}
+// func (c *Client) WriteNow(data []byte) {
+// 	if c.threads == 1 {
+// 		conn := c.conns[0]
+// 		conn.Write(data)
+// 		return
+// 	}
+// 	serial := atomic.AddInt64(&c.serial, 1)
+// 	next := int(serial) % c.threads
+// 	conn := c.conns[next]
+// 	conn.Write(data)
+// }
 
 func (c *Client) Write(data []byte) {
 	serial := atomic.AddInt64(&c.serial, 1)

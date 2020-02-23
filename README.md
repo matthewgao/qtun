@@ -72,6 +72,10 @@ Options:
         Log level (default info)
       --mtu int
         MTU size (default 1500)
+      --nodelay
+        Tcp no delay
+      --proxyonly
+        Only enable proxy
       --remote_addrs string
         Remote server address, only for client (default 2.2.2.2:8080)
       --server_mode

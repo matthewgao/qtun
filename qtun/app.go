@@ -177,8 +177,7 @@ func (this *App) ServerOnData(buf []byte, conn *transport.ServerConn) {
 		log.Debug().Str("local", ping.GetLocalAddr()).Str("ip", ping.GetIP()).
 			Msg("Proto Ping")
 
-		log.Info().Interface("route", this.routes).
-			Msg("Route Table")
+		log.Info().Interface("route", this.routes).Msg("Route Table")
 
 		this.server.SetConns(ping.GetLocalAddr(), conn)
 		this.mutex.Unlock()

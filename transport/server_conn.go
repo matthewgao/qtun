@@ -22,9 +22,8 @@ import (
 var ErrCiperNotMatch = fmt.Errorf("fail to match key")
 
 type ServerConn struct {
-	conn quic.Stream
-	key  string
-	// nonce     []byte
+	conn      quic.Stream
+	key       string
 	buf       []byte
 	aesgcm    cipher.AEAD
 	handler   GrpcHandler
@@ -38,10 +37,9 @@ type ServerConn struct {
 
 func NewServerConn(conn quic.Stream, key string, handler GrpcHandler, noDelay bool) *ServerConn {
 	return &ServerConn{
-		conn:    conn,
-		key:     key,
-		handler: handler,
-		// nonce:     make([]byte, 12),
+		conn:      conn,
+		key:       key,
+		handler:   handler,
 		buf:       make([]byte, 65536),
 		writeBuf:  &bytes.Buffer{},
 		chanWrite: make(chan []byte, 2),
@@ -49,7 +47,7 @@ func NewServerConn(conn quic.Stream, key string, handler GrpcHandler, noDelay bo
 	}
 }
 
-func (sc *ServerConn) run(cleanup func()) {
+func (sc *ServerConn) readProcess(cleanup func()) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Error().Interface("err", err).
@@ -113,6 +111,7 @@ func (sc *ServerConn) crypto() error {
 func (sc *ServerConn) read() ([]byte, error) {
 	var err error
 	var secure uint8 = 0
+
 	reader := sc.reader
 	err = binary.Read(reader, binary.LittleEndian, &secure)
 	if err != nil {
@@ -192,17 +191,13 @@ func (cc *ServerConn) write(data []byte) error {
 	if err == nil {
 		_, err = cc.writeBuf.WriteTo(cc.conn)
 	}
+
 	return err
 }
 
 func (cc *ServerConn) Write(data []byte) {
 	// log.Printf("server conn write chan %d", len(cc.chanWrite))
 	cc.chanWrite <- data
-}
-
-func (cc *ServerConn) WriteNow(data []byte) error {
-	cc.chanWrite <- data
-	return nil
 }
 
 func (sc *ServerConn) SendPacket(pkt iface.PacketIP) {
@@ -215,7 +210,7 @@ func (sc *ServerConn) SendPacket(pkt iface.PacketIP) {
 	sc.Write(data)
 }
 
-func (cc *ServerConn) ProcessWrite() (err error) {
+func (cc *ServerConn) writeProcess() (err error) {
 	defer func() {
 		if perr := recover(); perr != nil {
 			err = fmt.Errorf("server process write panic: %s", perr)

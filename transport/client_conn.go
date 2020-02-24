@@ -34,12 +34,11 @@ type ClientConn struct {
 	wg         sync.WaitGroup
 	parentWG   *sync.WaitGroup
 	connected  bool
-	// nonce      []byte
-	buf     *bytes.Buffer
-	readBuf []byte
-	handler GrpcHandler
-	reader  *bufio.Reader
-	noDelay bool
+	buf        *bytes.Buffer
+	readBuf    []byte
+	handler    GrpcHandler
+	reader     *bufio.Reader
+	noDelay    bool
 }
 
 func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup, noDelay bool) *ClientConn {
@@ -50,10 +49,9 @@ func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup, 
 		chanWrite:  make(chan []byte),
 		chanClose:  make(chan bool),
 		parentWG:   parentWG,
-		// nonce:      make([]byte, 12),
-		buf:     &bytes.Buffer{},
-		readBuf: make([]byte, 65536),
-		noDelay: noDelay,
+		buf:        &bytes.Buffer{},
+		readBuf:    make([]byte, 65536),
+		noDelay:    noDelay,
 	}
 }
 
@@ -75,6 +73,7 @@ func (this *ClientConn) tryConnect() error {
 	// }
 	if this.IsConnected() {
 		log.Info().Str("server_addr", this.remoteAddr).Msg("connection is alive skip try connect")
+		return nil
 	}
 
 	tlsConf := &tls.Config{
@@ -164,8 +163,8 @@ func (this *ClientConn) run() {
 				Msg("connect server fail")
 			time.Sleep(time.Millisecond * 1000)
 		} else {
-			go this.process()
-			err = this.runRead()
+			go this.writeProcess()
+			err = this.readProcess()
 			if err == nil {
 				log.Error().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
 					Msg("client exit from process ")
@@ -189,7 +188,7 @@ func (this *ClientConn) setConnected(value bool) {
 	this.mutex.Unlock()
 }
 
-func (this *ClientConn) process() (err error) {
+func (this *ClientConn) writeProcess() (err error) {
 	defer func() {
 		if perr := recover(); perr != nil {
 			err = fmt.Errorf("client process panic: %s", perr)
@@ -207,14 +206,14 @@ func (this *ClientConn) process() (err error) {
 	log.Info().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
 		Msg("success connect to server")
 
-	pingTicker := time.NewTicker(time.Second * 1)
-	defer pingTicker.Stop()
+	// pingTicker := time.NewTicker(time.Second * 1)
+	// defer pingTicker.Stop()
 	for {
 		select {
 		case <-this.chanClose:
 			return nil
-		case <-pingTicker.C:
-			// err = this.write(nilBuf)
+		// case <-pingTicker.C:
+		// 	// err = this.write(nilBuf)
 		case buf := <-this.chanWrite:
 			err = this.write(buf)
 		}
@@ -284,12 +283,12 @@ func (this *ClientConn) Write(data []byte) {
 	this.chanWrite <- data
 }
 
-func (this *ClientConn) WriteNow(data []byte) error {
-	this.chanWrite <- data
-	return nil
-}
+// func (this *ClientConn) WriteNow(data []byte) error {
+// 	this.chanWrite <- data
+// 	return nil
+// }
 
-func (sc *ClientConn) runRead() error {
+func (sc *ClientConn) readProcess() error {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Error().Interface("err", err).Int("thread_index", sc.index).

@@ -108,13 +108,10 @@ func (s *Server) listen() error {
 			return err
 		}
 
+		log.Debug().Str("addr", s.publicAddr).Msg("server accept start accept stream")
 		stream, err := sess.AcceptStream(context.Background())
-		// if err != nil {
-		// 	panic(err)
-		// }
-
-		// tcpConn, err := listener.AcceptTCP()
 		if nil != err {
+
 			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 				continue
 			}
@@ -134,8 +131,8 @@ func (s *Server) listen() error {
 		// 	Str("from", sess.RemoteAddr().String()).Msg("server start to read from connection")
 
 		//start to read pkt from connection
-		go serverConn.ProcessWrite()
-		go serverConn.run(func() {
+		go serverConn.writeProcess()
+		go serverConn.readProcess(func() {
 			s.RemoveConnByConnPointer(serverConn)
 			// log.Warn().Str("from", serverConn.conn.RemoteAddr().String()).
 			// 	Interface("alive_conns", s.Conns).Msg("server read thread exit")

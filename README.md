@@ -4,6 +4,9 @@
 
 a C-S safe tunnel, support multi-ip pipeline
 
+## Quic version
+see branch quic
+
 ## How to run
 
 * Go 1.13 needed

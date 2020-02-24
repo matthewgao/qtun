@@ -98,11 +98,21 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 
 		if config.GetInstance().ServerMode {
 			for {
+				this.mutex.Lock()
 				conns, ok := this.routes[dst]
 				if !ok {
 					log.Info().Int("workder", workerNum).Str("src", src).
 						Str("dst", dst).
 						Msg("FetchAndProcessTunPkt::no route, packet dropped")
+					this.mutex.Unlock()
+					break
+				}
+
+				if conns == nil {
+					log.Info().Int("workder", workerNum).Str("src", src).
+						Str("dst", dst).
+						Msg("FetchAndProcessTunPkt::has route but no connection, packet dropped")
+					this.mutex.Unlock()
 					break
 				}
 
@@ -110,7 +120,7 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 				for k := range conns {
 					keys = append(keys, k)
 				}
-
+				this.mutex.Unlock()
 				if len(keys) == 0 {
 					log.Info().Int("workder", workerNum).Str("src", src).
 						Str("dst", dst).
@@ -125,7 +135,9 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 					log.Info().Int("workder", workerNum).Str("src", src).
 						Str("dst", dst).
 						Msg("FetchAndProcessTunPkt::no connection, packet dropped")
+					this.mutex.Lock()
 					delete(this.routes[dst], keys[idx])
+					this.mutex.Unlock()
 					// this.routes[dst] = conns
 					this.server.DeleteDeadConn(keys[idx])
 				} else {

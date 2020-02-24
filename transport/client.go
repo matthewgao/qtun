@@ -46,9 +46,7 @@ func (c *Client) Start() {
 		conn := NewClientConn(c.remoteAddr, c.key, connIndex, &c.wg, config.GetInstance().NoDelay)
 		conn.SetHander(c.handler)
 
-		go conn.run()
-		time.Sleep(time.Millisecond * 200)
-
+		conn.InitConn()
 		connected := false
 		for index := 0; index < 10; index++ {
 			if conn.IsConnected() {
@@ -60,7 +58,7 @@ func (c *Client) Start() {
 
 		if connected {
 			c.conns[connIndex] = conn
-			go c.conns[connIndex].runRead()
+			go c.conns[connIndex].run()
 		} else {
 			log.Warn().Str("server_addr", c.remoteAddr).
 				Msg("fail to connect to the server after 10 times retry")
@@ -154,7 +152,8 @@ func (c *Client) ping() {
 		}
 	}()
 
-	tickerPing := time.NewTicker(time.Second * 2)
+	c.SendAllPing()
+	tickerPing := time.NewTicker(time.Second * 1)
 	defer tickerPing.Stop()
 	for range tickerPing.C {
 		c.SendAllPing()

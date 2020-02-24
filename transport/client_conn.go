@@ -34,12 +34,12 @@ type ClientConn struct {
 	wg         sync.WaitGroup
 	parentWG   *sync.WaitGroup
 	connected  bool
-	nonce      []byte
-	buf        *bytes.Buffer
-	readBuf    []byte
-	handler    GrpcHandler
-	reader     *bufio.Reader
-	noDelay    bool
+	// nonce      []byte
+	buf     *bytes.Buffer
+	readBuf []byte
+	handler GrpcHandler
+	reader  *bufio.Reader
+	noDelay bool
 }
 
 func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup, noDelay bool) *ClientConn {
@@ -50,10 +50,10 @@ func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup, 
 		chanWrite:  make(chan []byte),
 		chanClose:  make(chan bool),
 		parentWG:   parentWG,
-		nonce:      make([]byte, 12),
-		buf:        &bytes.Buffer{},
-		readBuf:    make([]byte, 65536),
-		noDelay:    noDelay,
+		// nonce:      make([]byte, 12),
+		buf:     &bytes.Buffer{},
+		readBuf: make([]byte, 65536),
+		noDelay: noDelay,
 	}
 }
 
@@ -113,6 +113,29 @@ func (this *ClientConn) crypto() (err error) {
 
 	this.aesgcm, err = makeAES128GCM(this.key)
 	return
+}
+
+func (this *ClientConn) InitConn() error {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Error().Interface("err", err).Int("thread_index", this.index).
+				Str("server_addr", this.remoteAddr).
+				Msg("InitConn::client connection thread panic")
+		}
+	}()
+
+	err := this.crypto()
+	utils.POE(err)
+
+	err = this.tryConnect()
+	if err != nil {
+		log.Error().Err(err).Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
+			Msg("connect server fail")
+		return err
+	}
+
+	this.setConnected(true)
+	return nil
 }
 
 func (this *ClientConn) run() {
@@ -191,7 +214,7 @@ func (this *ClientConn) process() (err error) {
 		case <-this.chanClose:
 			return nil
 		case <-pingTicker.C:
-			err = this.write(nilBuf)
+			// err = this.write(nilBuf)
 		case buf := <-this.chanWrite:
 			err = this.write(buf)
 		}
@@ -226,11 +249,12 @@ func (this *ClientConn) write(data []byte) error {
 			return err
 		}
 	} else {
-		_, err = io.ReadFull(crand.Reader, this.nonce)
+		nonce := make([]byte, this.aesgcm.NonceSize())
+		_, err = io.ReadFull(crand.Reader, nonce)
 		if err != nil {
 			return err
 		}
-		data2 := this.aesgcm.Seal(nil, this.nonce, data, nil)
+		data2 := this.aesgcm.Seal(nil, nonce, data, nil)
 		dataLen := uint16(len(data2))
 		err = binary.Write(this.buf, binary.LittleEndian, &dataLen)
 		if err != nil {
@@ -240,7 +264,7 @@ func (this *ClientConn) write(data []byte) error {
 		if err != nil {
 			return err
 		}
-		_, err = this.buf.Write(this.nonce)
+		_, err = this.buf.Write(nonce)
 		if err != nil {
 			return err
 		}
@@ -261,7 +285,8 @@ func (this *ClientConn) Write(data []byte) {
 }
 
 func (this *ClientConn) WriteNow(data []byte) error {
-	return this.write(data)
+	this.chanWrite <- data
+	return nil
 }
 
 func (sc *ClientConn) runRead() error {
@@ -284,7 +309,7 @@ func (sc *ClientConn) runRead() error {
 	// sc.conn.SetWriteBuffer(1024 * 1024)
 	// sc.conn.SetNoDelay(sc.noDelay)
 
-	sc.reader = bufio.NewReader(sc.conn)
+	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*8)
 	for {
 		// sc.conn.SetReadDeadline(time.Now().Add(time.Second * 5))
 		data, err := sc.read()
@@ -332,11 +357,12 @@ func (sc *ClientConn) read() ([]byte, error) {
 		return sc.readBuf[:dataLen], err
 	}
 
-	_, err = io.ReadFull(reader, sc.nonce)
+	nonce := make([]byte, sc.aesgcm.NonceSize())
+	_, err = io.ReadFull(reader, nonce)
 	if err != nil {
 		return nil, err
 	}
-	plain, err := sc.aesgcm.Open(nil, sc.nonce, sc.readBuf[:dataLen], nil)
+	plain, err := sc.aesgcm.Open(nil, nonce, sc.readBuf[:dataLen], nil)
 	if err != nil {
 		return nil, err
 	}

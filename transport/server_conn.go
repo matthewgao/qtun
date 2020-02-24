@@ -22,9 +22,9 @@ import (
 var ErrCiperNotMatch = fmt.Errorf("fail to match key")
 
 type ServerConn struct {
-	conn      quic.Stream
-	key       string
-	nonce     []byte
+	conn quic.Stream
+	key  string
+	// nonce     []byte
 	buf       []byte
 	aesgcm    cipher.AEAD
 	handler   GrpcHandler
@@ -38,13 +38,13 @@ type ServerConn struct {
 
 func NewServerConn(conn quic.Stream, key string, handler GrpcHandler, noDelay bool) *ServerConn {
 	return &ServerConn{
-		conn:      conn,
-		key:       key,
-		handler:   handler,
-		nonce:     make([]byte, 12),
+		conn:    conn,
+		key:     key,
+		handler: handler,
+		// nonce:     make([]byte, 12),
 		buf:       make([]byte, 65536),
 		writeBuf:  &bytes.Buffer{},
-		chanWrite: make(chan []byte, 4096),
+		chanWrite: make(chan []byte, 2),
 		noDelay:   noDelay,
 	}
 }
@@ -71,7 +71,7 @@ func (sc *ServerConn) run(cleanup func()) {
 	// sc.conn.SetKeepAlivePeriod(time.Second * 10)
 	// sc.conn.SetDeadline(time.Second * 30)
 
-	sc.reader = bufio.NewReader(sc.conn)
+	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*8)
 	for {
 		data, err := sc.read()
 		//FIXME: if it's EOF then need to exit, if it's not should continue
@@ -130,11 +130,12 @@ func (sc *ServerConn) read() ([]byte, error) {
 	if secure == 0 {
 		return sc.buf[:dataLen], err
 	} else {
-		_, err = io.ReadFull(reader, sc.nonce)
+		nonce := make([]byte, sc.aesgcm.NonceSize())
+		_, err = io.ReadFull(reader, nonce)
 		if err != nil {
 			return nil, err
 		}
-		plain, err := sc.aesgcm.Open(nil, sc.nonce, sc.buf[:dataLen], nil)
+		plain, err := sc.aesgcm.Open(nil, nonce, sc.buf[:dataLen], nil)
 		if err != nil {
 			// return nil, err
 			return nil, ErrCiperNotMatch
@@ -168,11 +169,12 @@ func (cc *ServerConn) write(data []byte) error {
 			return err
 		}
 	} else {
-		_, err = io.ReadFull(crand.Reader, cc.nonce)
+		nonce := make([]byte, cc.aesgcm.NonceSize())
+		_, err = io.ReadFull(crand.Reader, nonce)
 		if err != nil {
 			return err
 		}
-		data2 := cc.aesgcm.Seal(nil, cc.nonce, data, nil)
+		data2 := cc.aesgcm.Seal(nil, nonce, data, nil)
 		dataLen := uint16(len(data2))
 		err = binary.Write(cc.writeBuf, binary.LittleEndian, &dataLen)
 		if err != nil {
@@ -182,7 +184,7 @@ func (cc *ServerConn) write(data []byte) error {
 		if err != nil {
 			return err
 		}
-		_, err = cc.writeBuf.Write(cc.nonce)
+		_, err = cc.writeBuf.Write(nonce)
 		if err != nil {
 			return err
 		}
@@ -199,7 +201,8 @@ func (cc *ServerConn) Write(data []byte) {
 }
 
 func (cc *ServerConn) WriteNow(data []byte) error {
-	return cc.write(data)
+	cc.chanWrite <- data
+	return nil
 }
 
 func (sc *ServerConn) SendPacket(pkt iface.PacketIP) {

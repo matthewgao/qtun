@@ -29,16 +29,18 @@ type Server struct {
 	Mtx            *sync.Mutex
 
 	//为了能够删除已经断开的连接，并能够反过来查询连接，所以有两个map
-	Conns        map[string]*ServerConn
+	Conns map[string]*ServerConn
+	// ClientConns  map[string]*ServerConn
 	ConnsReverse map[*ServerConn]string
 }
 
 func NewServer(publicAddr string, handler GrpcHandler, key string) *Server {
 	srv := &Server{
-		publicAddr:   publicAddr,
-		handler:      handler,
-		key:          key,
-		Conns:        make(map[string]*ServerConn),
+		publicAddr: publicAddr,
+		handler:    handler,
+		key:        key,
+		Conns:      make(map[string]*ServerConn),
+		// ClientConns:  make(map[string]*ServerConn),
 		ConnsReverse: make(map[*ServerConn]string),
 		Mtx:          &sync.Mutex{},
 	}
@@ -125,16 +127,19 @@ func (s *Server) listen() error {
 		// log.Info().Interface("from", stream).Msg("server new accept")
 
 		serverConn := NewServerConn(stream, s.key, s.handler, config.GetInstance().NoDelay)
-		log.Info().Int("conn_size", len(s.Conns)).
-			Int("reverse_size", len(s.ConnsReverse)).
-			Str("from", sess.RemoteAddr().String()).Msg("server start to read from connection")
+		// s.ClientConns[sess.RemoteAddr().String()] = serverConn
+		// log.Info().Int("conn_size", len(s.Conns)).
+		// 	Int("reverse_size", len(s.ConnsReverse)).
+		// 	Int("client_conn_size", len(s.ClientConns)).
+		// 	Str("from", sess.RemoteAddr().String()).Msg("server start to read from connection")
+
 		//start to read pkt from connection
+		go serverConn.ProcessWrite()
 		go serverConn.run(func() {
 			s.RemoveConnByConnPointer(serverConn)
 			// log.Warn().Str("from", serverConn.conn.RemoteAddr().String()).
 			// 	Interface("alive_conns", s.Conns).Msg("server read thread exit")
-			log.Warn().Str("from", sess.RemoteAddr().String()).
-				Interface("alive_conns", s.Conns).Msg("server read thread exit")
+			log.Warn().Str("from", sess.RemoteAddr().String()).Msg("server read thread exit")
 		})
 	}
 }
@@ -197,7 +202,7 @@ func (s *Server) SetConns(dst string, serverConn *ServerConn) {
 
 		// serverConn := NewServerConn(conn, s.key, s.handler, config.GetInstance().NoDelay)
 		//Urgly 应该保证连接只run一下，只为了writebuf里面的内容可以正确的被处理，现在run了两次, 应该把读和写都统一在一个对象里管理
-		go serverConn.ProcessWrite()
+		// go serverConn.ProcessWrite()
 		s.Conns[dst] = serverConn
 		s.ConnsReverse[serverConn] = dst
 	} else {

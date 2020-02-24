@@ -140,9 +140,10 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 						Msg("FetchAndProcessTunPkt::no connection, packet dropped")
 					this.mutex.Lock()
 					delete(this.routes[dst], keys[idx])
+					this.mutex.Unlock()
 					// this.routes[dst] = conns
 					this.server.DeleteDeadConn(keys[idx])
-					this.mutex.Unlock()
+
 				} else {
 					conn.SendPacket(pkt)
 					break

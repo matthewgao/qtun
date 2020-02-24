@@ -68,6 +68,7 @@ func (this *ClientConn) IsConnected() bool {
 func (this *ClientConn) tryConnect() error {
 	if this.IsConnected() {
 		log.Info().Str("server_addr", this.remoteAddr).Msg("connection is alive skip try connect")
+		return nil
 	}
 
 	tcpAddr, err := net.ResolveTCPAddr("tcp", this.remoteAddr)

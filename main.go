@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
-	// _ "net/http/pprof"
+	_ "net/http/pprof"
 	"runtime"
 	"strconv"
 
@@ -120,6 +120,6 @@ func pprof() {
 }
 
 func main() {
-	// pprof()
+	pprof()
 	Init()
 }

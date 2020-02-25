@@ -23,6 +23,7 @@ var ErrCiperNotMatch = fmt.Errorf("fail to match key")
 
 type ServerConn struct {
 	conn      quic.Stream
+	sess      quic.Session
 	key       string
 	buf       []byte
 	aesgcm    cipher.AEAD
@@ -35,9 +36,10 @@ type ServerConn struct {
 	noDelay   bool
 }
 
-func NewServerConn(conn quic.Stream, key string, handler GrpcHandler, noDelay bool) *ServerConn {
+func NewServerConn(conn quic.Stream, sess quic.Session, key string, handler GrpcHandler, noDelay bool) *ServerConn {
 	return &ServerConn{
 		conn:      conn,
+		sess:      sess,
 		key:       key,
 		handler:   handler,
 		buf:       make([]byte, 65536),
@@ -50,6 +52,7 @@ func NewServerConn(conn quic.Stream, key string, handler GrpcHandler, noDelay bo
 
 func (this *ServerConn) Stop() {
 	this.chanClose <- true
+	close(this.chanWrite)
 }
 
 func (sc *ServerConn) readProcess(cleanup func()) {
@@ -60,6 +63,7 @@ func (sc *ServerConn) readProcess(cleanup func()) {
 		}
 		cleanup()
 		sc.conn.Close()
+		sc.sess.Close()
 		sc.isClosed = true
 		sc.Stop()
 	}()
@@ -203,6 +207,14 @@ func (cc *ServerConn) write(data []byte) error {
 
 func (cc *ServerConn) Write(data []byte) {
 	// log.Printf("server conn write chan %d", len(cc.chanWrite))
+	defer func() {
+		if recover() != nil {
+			// the return result can be altered
+			// in a defer function call
+			log.Warn().Msg("ServerConn::write to close channel")
+		}
+	}()
+
 	cc.chanWrite <- data
 }
 
@@ -223,6 +235,7 @@ func (cc *ServerConn) writeProcess() (err error) {
 		}
 
 		cc.conn.Close()
+		cc.sess.Close()
 		cc.isClosed = true
 		// log.Warn().Str("client_addr", cc.conn.RemoteAddr().String()).
 		// 	Msg("ServerConn::ProcessWrite conn closedd")

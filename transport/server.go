@@ -121,7 +121,7 @@ func (s *Server) listen() error {
 		log.Info().Str("from", sess.RemoteAddr().Network()).Msg("server new accept")
 		// log.Info().Interface("from", stream).Msg("server new accept")
 
-		serverConn := NewServerConn(stream, s.key, s.handler, config.GetInstance().NoDelay)
+		serverConn := NewServerConn(stream, sess, s.key, s.handler, config.GetInstance().NoDelay)
 		// s.ClientConns[sess.RemoteAddr().String()] = serverConn
 		// log.Info().Int("conn_size", len(s.Conns)).
 		// 	Int("reverse_size", len(s.ConnsReverse)).

@@ -115,7 +115,7 @@ func Init() {
 
 func pprof() {
 	go func() {
-		fmt.Println(http.ListenAndServe("localhost:6060", nil))
+		fmt.Println(http.ListenAndServe("0.0.0.0:6060", nil))
 	}()
 }
 

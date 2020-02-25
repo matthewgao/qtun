@@ -141,7 +141,11 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 					// this.routes[dst] = conns
 					this.server.DeleteDeadConn(keys[idx])
 				} else {
+					log.Debug().Int("workder", workerNum).Str("src", src).Str("dst", dst).
+						Int("len", n).Msg("FetchAndProcessTunPkt::send packet")
 					conn.SendPacket(pkt)
+					log.Debug().Int("workder", workerNum).Str("src", src).Str("dst", dst).
+						Int("len", n).Msg("FetchAndProcessTunPkt::send packet done")
 					break
 				}
 			}

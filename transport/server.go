@@ -29,18 +29,16 @@ type Server struct {
 	Mtx            *sync.Mutex
 
 	//为了能够删除已经断开的连接，并能够反过来查询连接，所以有两个map
-	Conns map[string]*ServerConn
-	// ClientConns  map[string]*ServerConn
+	Conns        map[string]*ServerConn
 	ConnsReverse map[*ServerConn]string
 }
 
 func NewServer(publicAddr string, handler GrpcHandler, key string) *Server {
 	srv := &Server{
-		publicAddr: publicAddr,
-		handler:    handler,
-		key:        key,
-		Conns:      make(map[string]*ServerConn),
-		// ClientConns:  make(map[string]*ServerConn),
+		publicAddr:   publicAddr,
+		handler:      handler,
+		key:          key,
+		Conns:        make(map[string]*ServerConn),
 		ConnsReverse: make(map[*ServerConn]string),
 		Mtx:          &sync.Mutex{},
 	}
@@ -180,9 +178,10 @@ func (s *Server) DeleteDeadConn(dst string) {
 	conn, ok := s.Conns[dst]
 	if ok {
 		delete(s.Conns, dst)
-		if conn != nil {
-			delete(s.ConnsReverse, conn)
-		}
+	}
+
+	if conn != nil {
+		delete(s.ConnsReverse, conn)
 	}
 
 	log.Warn().Str("dest", dst).Int("conn_size", len(s.Conns)).
@@ -204,6 +203,7 @@ func (s *Server) SetConns(dst string, serverConn *ServerConn) {
 		s.ConnsReverse[serverConn] = dst
 	} else {
 		if v.conn == nil {
+			v.Stop()
 			delete(s.Conns, dst)
 		}
 	}
@@ -215,6 +215,6 @@ func (s *Server) RemoveConnByConnPointer(conn *ServerConn) {
 	dst, ok := s.ConnsReverse[conn]
 	if ok {
 		delete(s.Conns, dst)
-		delete(s.ConnsReverse, conn)
 	}
+	delete(s.ConnsReverse, conn)
 }

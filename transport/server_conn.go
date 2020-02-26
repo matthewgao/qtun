@@ -82,10 +82,10 @@ func (sc *ServerConn) readProcess(cleanup func()) {
 	// sc.conn.SetKeepAlivePeriod(time.Second * 10)
 	// sc.conn.SetDeadline(time.Second * 30)
 	//
-	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*8)
+	reader := bufio.NewReaderSize(sc.conn, 1024*1024*8)
 	for {
 		sc.conn.SetReadDeadline(time.Now().Add(time.Second * 10))
-		data, err := sc.read()
+		data, err := sc.read(reader)
 		//FIXME: if it's EOF then need to exit, if it's not should continue
 		// if err == io.EOF || err == io.ErrUnexpectedEOF {
 		// 	log.Error().Err(err).Msg("ServerConn::run conn read fail, it's closed by client")
@@ -122,11 +122,11 @@ func (sc *ServerConn) crypto() error {
 	return err
 }
 
-func (sc *ServerConn) read() ([]byte, error) {
+func (sc *ServerConn) read(reader *bufio.Reader) ([]byte, error) {
 	var err error
 	var secure uint8 = 0
 
-	reader := sc.reader
+	// reader := sc.reader
 	err = binary.Read(reader, binary.LittleEndian, &secure)
 	if err != nil {
 		return nil, err

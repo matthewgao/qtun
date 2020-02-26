@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"time"
 
 	// "log"
 
@@ -81,6 +82,7 @@ func (sc *ServerConn) readProcess(cleanup func()) {
 
 	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*8)
 	for {
+		sc.conn.SetReadDeadline(time.Now().Add(time.Second * 10))
 		data, err := sc.read()
 		//FIXME: if it's EOF then need to exit, if it's not should continue
 		// if err == io.EOF || err == io.ErrUnexpectedEOF {

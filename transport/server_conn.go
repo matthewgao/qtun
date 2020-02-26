@@ -65,10 +65,12 @@ func (sc *ServerConn) readProcess(cleanup func()) {
 
 		log.Warn().Msg("ServerConn::conn run, exit")
 		cleanup()
+
 		sc.conn.Close()
 		sc.sess.Close()
 		sc.isClosed = true
 		sc.Stop()
+		log.Warn().Msg("ServerConn::conn run, exit1")
 	}()
 	var err error
 	err = sc.crypto()

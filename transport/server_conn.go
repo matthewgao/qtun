@@ -8,7 +8,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"time"
 
 	// "log"
 
@@ -84,9 +83,10 @@ func (sc *ServerConn) readProcess(cleanup func()) {
 	// sc.conn.SetKeepAlivePeriod(time.Second * 10)
 	// sc.conn.SetDeadline(time.Second * 30)
 	//
+	//FIXME:seems like the bufio buf is not release even if readProcess has fully exit
 	reader := bufio.NewReaderSize(sc.conn, 1024*1024*8)
 	for {
-		sc.conn.SetReadDeadline(time.Now().Add(time.Second * 10))
+		// sc.conn.SetReadDeadline(time.Now().Add(time.Second * 10))
 		data, err := sc.read(reader)
 		//FIXME: if it's EOF then need to exit, if it's not should continue
 		// if err == io.EOF || err == io.ErrUnexpectedEOF {

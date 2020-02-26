@@ -62,6 +62,8 @@ func (sc *ServerConn) readProcess(cleanup func()) {
 			log.Error().Interface("err", err).
 				Msg("ServerConn::run conn run fail, exit")
 		}
+
+		log.Warn().Msg("ServerConn::conn run, exit")
 		cleanup()
 		sc.conn.Close()
 		sc.sess.Close()
@@ -79,10 +81,10 @@ func (sc *ServerConn) readProcess(cleanup func()) {
 	// sc.conn.SetKeepAlive(true)
 	// sc.conn.SetKeepAlivePeriod(time.Second * 10)
 	// sc.conn.SetDeadline(time.Second * 30)
-
+	//
+	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*8)
 	for {
 		sc.conn.SetReadDeadline(time.Now().Add(time.Second * 10))
-		sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*8)
 		data, err := sc.read()
 		//FIXME: if it's EOF then need to exit, if it's not should continue
 		// if err == io.EOF || err == io.ErrUnexpectedEOF {

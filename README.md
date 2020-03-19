@@ -20,7 +20,7 @@ sudo ./qtun qt --key "hahaha" --listen "0.0.0.0:8080" --ip "10.4.4.2/24" --serve
 ```
 
 ### Client:
-启动后配置自动代理 http://127.0.0.1:8082/proxy.pac， 如果不是在工程bin目录中启动，需要自己设置http file server地址
+启动后会Mac下自动配置自动代理 http://127.0.0.1:8082/proxy.pac， 如果不是在工程bin目录中启动，需要自己设置http file server地址
 ```
 cd bin/
 sudo ./qtun qt --key "hahaha" --remote_addrs "8.8.8.80:8080" --ip "10.4.4.3/24"

@@ -3,6 +3,8 @@
 
 var domains = {
   "cppreference.com": 1, 
+  "wolframalpha.com": 1, 
+  "hackmd.io": 1, 
   "bbci.co.uk": 1, 
   "bbc.co.uk": 1, 
   "terminus2049.github.io": 1, 

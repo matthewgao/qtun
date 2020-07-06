@@ -2,7 +2,13 @@
 // https://github.com/clowwindy/gfwlist2pac
 
 var domains = {
+  "wireguard.com": 1, 
+  "jsfiddle.net": 1, 
+  "thelayoff.com": 1, 
+  "christine.website": 1, 
+  "sstatic.net": 1, 
   "cppreference.com": 1, 
+  "weebly.com": 1, 
   "wolframalpha.com": 1, 
   "hackmd.io": 1, 
   "bbci.co.uk": 1, 

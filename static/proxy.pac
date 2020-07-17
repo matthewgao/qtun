@@ -3,6 +3,8 @@
 
 var domains = {
   "wireguard.com": 1, 
+  "docs.rs": 1, 
+  "wikimedia.org": 1, 
   "jsfiddle.net": 1, 
   "thelayoff.com": 1, 
   "christine.website": 1, 

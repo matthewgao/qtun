@@ -1,9 +1,3 @@
-// +build windows
-
-// To use it with windows, you need a tap driver installed on windows.
-// https://github.com/OpenVPN/tap-windows6
-// or just install OpenVPN
-// https://github.com/OpenVPN/openvpn
 package water
 
 import (
@@ -16,6 +10,18 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows/registry"
+)
+
+// To use it with windows, you need a tap driver installed on windows.
+// https://github.com/OpenVPN/tap-windows6
+// or just install OpenVPN
+// https://github.com/OpenVPN/openvpn
+
+const (
+	// tapDriverKey is the location of the TAP driver key.
+	tapDriverKey = `SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}`
+	// netConfigKey is the location of the TAP adapter's network config.
+	netConfigKey = `SYSTEM\CurrentControlSet\Control\Network\{4D36E972-E325-11CE-BFC1-08002BE10318}`
 )
 
 var (
@@ -140,10 +146,8 @@ func tap_control_code(request, method uint32) uint32 {
 }
 
 // getdeviceid finds out a TAP device from registry, it *may* requires privileged right to prevent some weird issue.
-func getdeviceid(componentID string) (deviceid string, err error) {
-	// TAP driver key location
-	regkey := `SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}`
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, regkey, registry.READ)
+func getdeviceid(componentID string, interfaceName string) (deviceid string, err error) {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, tapDriverKey, registry.READ)
 	if err != nil {
 		return "", fmt.Errorf("Failed to open the adapter registry, TAP driver may be not installed, %v", err)
 	}
@@ -155,7 +159,7 @@ func getdeviceid(componentID string) (deviceid string, err error) {
 	}
 	// find the one matched ComponentId
 	for _, v := range keys {
-		key, err := registry.OpenKey(registry.LOCAL_MACHINE, regkey+"\\"+v, registry.READ)
+		key, err := registry.OpenKey(registry.LOCAL_MACHINE, tapDriverKey+"\\"+v, registry.READ)
 		if err != nil {
 			continue
 		}
@@ -170,12 +174,28 @@ func getdeviceid(componentID string) (deviceid string, err error) {
 				key.Close()
 				continue
 			}
+			if len(interfaceName) > 0 {
+				key2 := fmt.Sprintf("%s\\%s\\Connection", netConfigKey, val)
+				k2, err := registry.OpenKey(registry.LOCAL_MACHINE, key2, registry.READ)
+				if err != nil {
+					continue
+				}
+				defer k2.Close()
+				val, _, err := k2.GetStringValue("Name")
+				if err != nil || val != interfaceName {
+					continue
+				}
+			}
 			key.Close()
 			return val, nil
 		}
 		key.Close()
 	}
-	return "", fmt.Errorf("Failed to find the tap device in registry with specified ComponentId(%s), TAP driver may be not installed", componentID)
+	if len(interfaceName) > 0 {
+		return "", fmt.Errorf("Failed to find the tap device in registry with specified ComponentId '%s' and InterfaceName '%s', TAP driver may be not installed or you may have specified an interface name that doesn't exist", componentID, interfaceName)
+	}
+
+	return "", fmt.Errorf("Failed to find the tap device in registry with specified ComponentId '%s', TAP driver may be not installed", componentID)
 }
 
 // setStatus is used to bring up or bring down the interface
@@ -217,7 +237,7 @@ func setTUN(fd syscall.Handle, network string) error {
 // openDev find and open an interface.
 func openDev(config Config) (ifce *Interface, err error) {
 	// find the device in registry.
-	deviceid, err := getdeviceid(config.PlatformSpecificParams.ComponentID)
+	deviceid, err := getdeviceid(config.PlatformSpecificParams.ComponentID, config.PlatformSpecificParams.InterfaceName)
 	if err != nil {
 		return nil, err
 	}
@@ -280,6 +300,9 @@ func openDev(config Config) (ifce *Interface, err error) {
 	}
 
 	for _, v := range ifces {
+		if len(v.HardwareAddr) < 6 {
+			continue
+		}
 		if bytes.Equal(v.HardwareAddr[:6], mac[:6]) {
 			ifce.name = v.Name
 			return
@@ -287,12 +310,4 @@ func openDev(config Config) (ifce *Interface, err error) {
 	}
 
 	return nil, errIfceNameNotFound
-}
-
-func newTAP(config Config) (ifce *Interface, err error) {
-	return openDev(config)
-}
-
-func newTUN(config Config) (ifce *Interface, err error) {
-	return openDev(config)
 }

@@ -90,7 +90,8 @@ func (this *ClientConn) tryConnect() error {
 
 	this.conn, err = this.session.OpenStreamSync(context.Background())
 	if err != nil {
-		this.session.Close()
+		// this.session.Close()
+		this.session.CloseWithError(0x2, "fail to open stream sync")
 		return err
 	}
 
@@ -197,7 +198,8 @@ func (this *ClientConn) writeProcess() (err error) {
 
 		this.setConnected(false)
 		this.conn.Close()
-		this.session.Close()
+		// this.session.Close()
+		this.session.CloseWithError(0x1, "fail to write")
 
 		log.Error().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
 			Msg("client conn closed")
@@ -300,7 +302,8 @@ func (sc *ClientConn) readProcess() error {
 		if sc.conn != nil {
 			sc.conn.Close()
 		}
-		sc.session.Close()
+		// sc.session.Close()
+		sc.session.CloseWithError(0x1, "fail to read")
 		sc.setConnected(false)
 	}()
 	var err error

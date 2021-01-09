@@ -66,7 +66,8 @@ func (sc *ServerConn) readProcess(cleanup func()) {
 		cleanup()
 
 		sc.conn.Close()
-		sc.sess.Close()
+		// sc.sess.Close()
+		sc.sess.CloseWithError(0x1, "fail to write")
 		sc.isClosed = true
 		sc.Stop()
 		log.Warn().Msg("ServerConn::conn run, exit1")
@@ -241,7 +242,8 @@ func (cc *ServerConn) writeProcess() (err error) {
 		}
 
 		cc.conn.Close()
-		cc.sess.Close()
+		// cc.sess.Close()
+		cc.sess.CloseWithError(0x1, "fail to read")
 		cc.isClosed = true
 		// log.Warn().Str("client_addr", cc.conn.RemoteAddr().String()).
 		// 	Msg("ServerConn::ProcessWrite conn closedd")

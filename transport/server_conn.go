@@ -23,7 +23,7 @@ var ErrCiperNotMatch = fmt.Errorf("fail to match key")
 
 type ServerConn struct {
 	conn      quic.Stream
-	sess      quic.Session
+	sess      quic.Connection
 	key       string
 	buf       []byte
 	aesgcm    cipher.AEAD
@@ -36,7 +36,7 @@ type ServerConn struct {
 	noDelay   bool
 }
 
-func NewServerConn(conn quic.Stream, sess quic.Session, key string, handler GrpcHandler, noDelay bool) *ServerConn {
+func NewServerConn(conn quic.Stream, sess quic.Connection, key string, handler GrpcHandler, noDelay bool) *ServerConn {
 	return &ServerConn{
 		conn:      conn,
 		sess:      sess,

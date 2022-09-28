@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"net/http"
-	_ "net/http/pprof"
+
+	// _ "net/http/pprof"
 	"runtime"
 	"strconv"
 
+	"github.com/arl/statsviz"
 	"github.com/gookit/color"
 	"github.com/gookit/gcli/v2"
 	"github.com/gookit/gcli/v2/builtin"
@@ -57,7 +59,7 @@ func Command() *gcli.Command {
 	cmd.IntOpt(&cmdOpts.TransportThreads, "transport_threads", "", 1, "concurrent threads num only for client")
 	cmd.IntOpt(&cmdOpts.Mtu, "mtu", "", 1500, "MTU size")
 	cmd.IntOpt(&cmdOpts.Socks5Port, "socks5_port", "", 2080, "socks5 server port")
-	cmd.IntOpt(&cmdOpts.FileServerPort, "file_svr_port", "", 8082, "http file server port")
+	cmd.IntOpt(&cmdOpts.FileServerPort, "file_svr_port", "", 6061, "http file server port")
 	cmd.BoolOpt(&cmdOpts.ServerMode, "server_mode", "", false, "if running in server mode")
 	cmd.BoolOpt(&cmdOpts.NoDelay, "nodelay", "", false, "tcp no delay")
 	cmd.BoolOpt(&cmdOpts.ProxyOnly, "proxyonly", "", false, "only enable proxy")
@@ -119,7 +121,15 @@ func pprof() {
 	}()
 }
 
+func sysGui() {
+	statsviz.RegisterDefault()
+	go func() {
+		http.ListenAndServe("localhost:6060", nil)
+	}()
+}
+
 func main() {
-	pprof()
+	// pprof()
+	sysGui()
 	Init()
 }

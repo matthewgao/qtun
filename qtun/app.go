@@ -242,7 +242,7 @@ func (this *App) SetProxy() {
 
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("networksetup", "-setautoproxyurl", "Wi-Fi", "http://127.0.0.1:8082/proxy.pac")
+		cmd = exec.Command("networksetup", "-setautoproxyurl", "Wi-Fi", "http://127.0.0.1:6061/proxy.pac")
 		log.Info().Str("cmd", cmd.String()).Msg("set system proxy")
 	case "linux":
 		log.Info().Msg("set system proxy not support please set it manually")

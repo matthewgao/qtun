@@ -25,7 +25,7 @@ type ClientConn struct {
 	remoteAddr string
 	key        string
 	conn       quic.Stream
-	session    quic.Session
+	session    quic.Connection
 	index      int
 	mutex      sync.RWMutex
 	aesgcm     cipher.AEAD

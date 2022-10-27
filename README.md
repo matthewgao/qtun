@@ -1,4 +1,4 @@
-# Qtun v1.0
+# Qtun on Quic v1.0
 
 ## About
 
@@ -8,7 +8,7 @@ a C-S safe tunnel, support multi-ip pipeline
 
 ## How to run
 
-* Go 1.13 needed
+* Go 1.19 needed
 
 ### Server
 会自动启动两个服务一个Tun, 一个Socks5 Server 监听在127.0.0.1:2080

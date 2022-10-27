@@ -6,7 +6,7 @@ a C-S safe tunnel, support multi-ip pipeline
 * `master` branch is a tcp implementation edtion.
 * `quic` branch is a quic implementation edition. RECOMMAND!
 
-## Quic version
+## Quic version [Recommand]
 see branch quic
 
 ## How to run

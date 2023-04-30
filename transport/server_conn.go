@@ -85,7 +85,7 @@ func (sc *ServerConn) readProcess(cleanup func()) {
 	// sc.conn.SetDeadline(time.Second * 30)
 	//
 	//FIXME:seems like the bufio buf is not release even if readProcess has fully exit
-	reader := bufio.NewReaderSize(sc.conn, 1024*1024*8)
+	reader := bufio.NewReaderSize(sc.conn, 1024*4)
 	for {
 		// sc.conn.SetReadDeadline(time.Now().Add(time.Second * 10))
 		data, err := sc.read(reader)

@@ -314,7 +314,7 @@ func (sc *ClientConn) readProcess() error {
 	// sc.conn.SetWriteBuffer(1024 * 1024)
 	// sc.conn.SetNoDelay(sc.noDelay)
 
-	sc.reader = bufio.NewReaderSize(sc.conn, 1024*1024*8)
+	sc.reader = bufio.NewReaderSize(sc.conn, 1024*4)
 	for {
 		// sc.conn.SetReadDeadline(time.Now().Add(time.Second * 5))
 		data, err := sc.read()

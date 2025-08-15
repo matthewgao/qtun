@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lucas-clemente/quic-go"
 	"github.com/matthewgao/qtun/utils"
+	"github.com/quic-go/quic-go"
 	"github.com/rs/zerolog/log"
 )
 
@@ -24,8 +24,8 @@ var nilBuf = make([]byte, 0)
 type ClientConn struct {
 	remoteAddr string
 	key        string
-	conn       quic.Stream
-	session    quic.Connection
+	conn       *quic.Stream
+	session    *quic.Conn
 	index      int
 	mutex      sync.RWMutex
 	aesgcm     cipher.AEAD
@@ -81,7 +81,9 @@ func (this *ClientConn) tryConnect() error {
 		NextProtos:         []string{"quic-echo-example"},
 	}
 
-	session, err := quic.DialAddr(this.remoteAddr, tlsConf, nil)
+	ctx := context.Background()
+
+	session, err := quic.DialAddr(ctx, this.remoteAddr, tlsConf, nil)
 	if err != nil {
 		return err
 	}
@@ -375,7 +377,7 @@ func (sc *ClientConn) read() ([]byte, error) {
 	return plain, nil
 }
 
-//为了使用 10.4.4.3:port 这样的格式来表示一条tcp连接
+// 为了使用 10.4.4.3:port 这样的格式来表示一条tcp连接
 func (sc *ClientConn) GetConnPort() string {
 	// fullWithPort := sc.conn.LocalAddr().String()
 	fullWithPort := sc.session.LocalAddr().String()

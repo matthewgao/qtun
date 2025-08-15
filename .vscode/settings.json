@@ -1,6 +1,6 @@
 {
     "go.formatTool": "goimports",
-    "go.useLanguageServer": false,
+    "go.useLanguageServer": true,
     "go.languageServerFlags": [
         "-rpc.trace"
     ],
@@ -16,5 +16,8 @@
         "documentSymbols": true,
         "workspaceSymbols": true,
         "findReferences": true
+    },
+    "gopls": {
+
     }
 }

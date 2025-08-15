@@ -15,5 +15,8 @@ linux-i686:
 arm:
 	env GOOS=linux GOARM=7 GOARCH=arm go build -v -o bin/qtun-arm main.go
 
+m4:
+	env GOOS=darwin GOARCH=arm64 go build -v -o bin/qtun-m4 main.go
+
 deps:
 	go get -v qtun

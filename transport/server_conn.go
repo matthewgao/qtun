@@ -12,18 +12,18 @@ import (
 	// "log"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/lucas-clemente/quic-go"
 	"github.com/matthewgao/qtun/iface"
 	"github.com/matthewgao/qtun/protocol"
 	"github.com/matthewgao/qtun/utils"
+	"github.com/quic-go/quic-go"
 	"github.com/rs/zerolog/log"
 )
 
 var ErrCiperNotMatch = fmt.Errorf("fail to match key")
 
 type ServerConn struct {
-	conn      quic.Stream
-	sess      quic.Connection
+	conn      *quic.Stream
+	sess      *quic.Conn
 	key       string
 	buf       []byte
 	aesgcm    cipher.AEAD
@@ -36,7 +36,7 @@ type ServerConn struct {
 	noDelay   bool
 }
 
-func NewServerConn(conn quic.Stream, sess quic.Connection, key string, handler GrpcHandler, noDelay bool) *ServerConn {
+func NewServerConn(conn *quic.Stream, sess *quic.Conn, key string, handler GrpcHandler, noDelay bool) *ServerConn {
 	return &ServerConn{
 		conn:      conn,
 		sess:      sess,
@@ -72,8 +72,8 @@ func (sc *ServerConn) readProcess(cleanup func()) {
 		sc.Stop()
 		log.Warn().Msg("ServerConn::conn run, exit1")
 	}()
-	var err error
-	err = sc.crypto()
+
+	err := sc.crypto()
 	utils.POE(err)
 
 	// sc.conn.SetReadBuffer(1024 * 1024)

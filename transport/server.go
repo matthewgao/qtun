@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/quic-go/quic-go"
 	"github.com/matthewgao/qtun/config"
+	"github.com/quic-go/quic-go"
 	"github.com/rs/zerolog/log"
 )
 
@@ -28,19 +28,19 @@ type Server struct {
 	publicListener quic.Listener
 	Mtx            *sync.Mutex
 
+	// Optimized: Use sync.Map for better concurrent performance
 	//为了能够删除已经断开的连接，并能够反过来查询连接，所以有两个map
-	Conns        map[string]*ServerConn
-	ConnsReverse map[*ServerConn]string
+	Conns        sync.Map // map[string]*ServerConn
+	ConnsReverse sync.Map // map[*ServerConn]string
 }
 
 func NewServer(publicAddr string, handler GrpcHandler, key string) *Server {
 	srv := &Server{
-		publicAddr:   publicAddr,
-		handler:      handler,
-		key:          key,
-		Conns:        make(map[string]*ServerConn),
-		ConnsReverse: make(map[*ServerConn]string),
-		Mtx:          &sync.Mutex{},
+		publicAddr: publicAddr,
+		handler:    handler,
+		key:        key,
+		Mtx:        &sync.Mutex{},
+		// Optimized: sync.Map doesn't need initialization
 	}
 	return srv
 }
@@ -93,8 +93,17 @@ func (s *Server) listen() error {
 		log.Info().Str("addr", s.publicAddr).Msg("server listener closed")
 	}()
 
+	// Optimized: Configure QUIC with performance parameters
+	quicConfig := &quic.Config{
+		MaxIncomingStreams:         1000,             // Allow more concurrent streams
+		MaxStreamReceiveWindow:     6 * 1024 * 1024,  // 6MB receive window
+		MaxConnectionReceiveWindow: 15 * 1024 * 1024, // 15MB connection window
+		KeepAlivePeriod:            30 * time.Second,
+		EnableDatagrams:            true,
+	}
+
 	// listener, err := net.ListenTCP("tcp", tcpAddr)
-	listener, err := quic.ListenAddr(s.publicAddr, s.generateTLSConfig(), nil)
+	listener, err := quic.ListenAddr(s.publicAddr, s.generateTLSConfig(), quicConfig)
 	if err != nil {
 		return fmt.Errorf("Server::Listen::net listen tcp err: %s", err)
 	}
@@ -140,7 +149,8 @@ func (s *Server) listen() error {
 }
 
 func (s *Server) generateTLSConfig() *tls.Config {
-	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	// Optimized: Increased RSA key size from 1024 to 2048 bits for better security
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		panic(err)
 	}
@@ -163,58 +173,46 @@ func (s *Server) generateTLSConfig() *tls.Config {
 }
 
 func (s *Server) GetConnsByAddr(dst string) *ServerConn {
-	//No need to add lock
-	conn, ok := s.Conns[dst]
-	if ok {
-		return conn
+	// Optimized: Use sync.Map Load (lock-free reads)
+	if conn, ok := s.Conns.Load(dst); ok {
+		return conn.(*ServerConn)
 	}
 	return nil
 }
 
 func (s *Server) DeleteDeadConn(dst string) {
-	s.Mtx.Lock()
-	defer s.Mtx.Unlock()
-
-	conn, ok := s.Conns[dst]
-	if ok {
-		delete(s.Conns, dst)
+	// Optimized: Use sync.Map Delete (no lock needed)
+	if connVal, ok := s.Conns.LoadAndDelete(dst); ok {
+		conn := connVal.(*ServerConn)
+		s.ConnsReverse.Delete(conn)
+		log.Warn().Str("dest", dst).Msg("delete dead conn")
 	}
-
-	if conn != nil {
-		delete(s.ConnsReverse, conn)
-	}
-
-	log.Warn().Str("dest", dst).Int("conn_size", len(s.Conns)).
-		Int("reverse_size", len(s.ConnsReverse)).Msg("delete dead conn")
 }
 
 func (s *Server) SetConns(dst string, serverConn *ServerConn) {
-	s.Mtx.Lock()
-	defer s.Mtx.Unlock()
-	if v, ok := s.Conns[dst]; !ok {
-		if serverConn == nil {
-			return
-		}
+	// Optimized: Use sync.Map Store/LoadOrStore (no lock needed)
+	if serverConn == nil {
+		return
+	}
 
-		// serverConn := NewServerConn(conn, s.key, s.handler, config.GetInstance().NoDelay)
-		//Urgly 应该保证连接只run一下，只为了writebuf里面的内容可以正确的被处理，现在run了两次, 应该把读和写都统一在一个对象里管理
-		// go serverConn.ProcessWrite()
-		s.Conns[dst] = serverConn
-		s.ConnsReverse[serverConn] = dst
-	} else {
-		if v.conn == nil {
-			v.Stop()
-			delete(s.Conns, dst)
+	if existingVal, loaded := s.Conns.LoadOrStore(dst, serverConn); loaded {
+		// Connection already exists
+		existing := existingVal.(*ServerConn)
+		if existing.conn == nil {
+			existing.Stop()
+			s.Conns.Store(dst, serverConn)
+			s.ConnsReverse.Store(serverConn, dst)
 		}
+	} else {
+		// New connection
+		s.ConnsReverse.Store(serverConn, dst)
 	}
 }
 
 func (s *Server) RemoveConnByConnPointer(conn *ServerConn) {
-	s.Mtx.Lock()
-	defer s.Mtx.Unlock()
-	dst, ok := s.ConnsReverse[conn]
-	if ok {
-		delete(s.Conns, dst)
+	// Optimized: Use sync.Map Delete (no lock needed)
+	if dstVal, ok := s.ConnsReverse.LoadAndDelete(conn); ok {
+		dst := dstVal.(string)
+		s.Conns.Delete(dst)
 	}
-	delete(s.ConnsReverse, conn)
 }

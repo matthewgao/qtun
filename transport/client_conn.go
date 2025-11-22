@@ -46,8 +46,8 @@ func NewClientConn(remoteAddr, key string, index int, parentWG *sync.WaitGroup, 
 		remoteAddr: remoteAddr,
 		key:        key,
 		index:      index,
-		chanWrite:  make(chan []byte),
-		chanClose:  make(chan bool),
+		chanWrite:  make(chan []byte, 256), // Optimized: Increased from unbuffered to 256
+		chanClose:  make(chan bool, 1),     // Optimized: Added buffer
 		parentWG:   parentWG,
 		buf:        &bytes.Buffer{},
 		readBuf:    make([]byte, 65536),
@@ -81,9 +81,18 @@ func (this *ClientConn) tryConnect() error {
 		NextProtos:         []string{"quic-echo-example"},
 	}
 
+	// Optimized: Configure QUIC with performance parameters
+	quicConfig := &quic.Config{
+		MaxIncomingStreams:         1000,             // Allow more concurrent streams
+		MaxStreamReceiveWindow:     6 * 1024 * 1024,  // 6MB receive window
+		MaxConnectionReceiveWindow: 15 * 1024 * 1024, // 15MB connection window
+		KeepAlivePeriod:            30 * time.Second,
+		EnableDatagrams:            true,
+	}
+
 	ctx := context.Background()
 
-	session, err := quic.DialAddr(ctx, this.remoteAddr, tlsConf, nil)
+	session, err := quic.DialAddr(ctx, this.remoteAddr, tlsConf, quicConfig)
 	if err != nil {
 		return err
 	}
@@ -254,7 +263,10 @@ func (this *ClientConn) write(data []byte) error {
 			return err
 		}
 	} else {
-		nonce := make([]byte, this.aesgcm.NonceSize())
+		// Optimized: Use nonce from pool
+		nonce := getNonce()
+		defer putNonce(nonce)
+
 		_, err = io.ReadFull(crand.Reader, nonce)
 		if err != nil {
 			return err
@@ -316,7 +328,8 @@ func (sc *ClientConn) readProcess() error {
 	// sc.conn.SetWriteBuffer(1024 * 1024)
 	// sc.conn.SetNoDelay(sc.noDelay)
 
-	sc.reader = bufio.NewReaderSize(sc.conn, 1024*4)
+	// Optimized: Increased buffer from 4KB to 64KB for better throughput
+	sc.reader = bufio.NewReaderSize(sc.conn, 1024*64)
 	for {
 		// sc.conn.SetReadDeadline(time.Now().Add(time.Second * 5))
 		data, err := sc.read()
@@ -364,7 +377,10 @@ func (sc *ClientConn) read() ([]byte, error) {
 		return sc.readBuf[:dataLen], err
 	}
 
-	nonce := make([]byte, sc.aesgcm.NonceSize())
+	// Optimized: Use nonce from pool
+	nonce := getNonce()
+	defer putNonce(nonce)
+
 	_, err = io.ReadFull(reader, nonce)
 	if err != nil {
 		return nil, err

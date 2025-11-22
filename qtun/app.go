@@ -20,7 +20,7 @@ type App struct {
 	config *config.Config
 	client *transport.Client
 	routes map[string]map[string]struct{}
-	mutex  sync.RWMutex
+	mutex  sync.RWMutex // Already RWMutex, good!
 	server *transport.Server
 	iface  *iface.Iface
 	tm     timer.Timer
@@ -74,11 +74,24 @@ func (this *App) StartFetchTunInterface() error {
 		return err
 	}
 
-	for i := 0; i < 10; i++ {
+	// Optimized: Dynamic worker count based on CPU cores
+	// Use 2x CPU cores for better I/O parallelism, with min 4 and max 32
+	numWorkers := runtime.NumCPU() * 2
+	if numWorkers < 4 {
+		numWorkers = 4
+	}
+	if numWorkers > 32 {
+		numWorkers = 32
+	}
+
+	log.Info().Int("num_workers", numWorkers).Int("num_cpu", runtime.NumCPU()).
+		Msg("Starting TUN packet workers")
+
+	for i := 0; i < numWorkers-1; i++ {
 		go this.FetchAndProcessTunPkt(i)
 	}
 
-	return this.FetchAndProcessTunPkt(255)
+	return this.FetchAndProcessTunPkt(numWorkers - 1)
 }
 
 func (this *App) FetchAndProcessTunPkt(workerNum int) error {
@@ -97,40 +110,36 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 			Int("len", n).Msg("FetchAndProcessTunPkt::got tun packet")
 
 		if config.GetInstance().ServerMode {
+			// Optimized: Use RLock for read operations and minimize critical section
 			for {
-				this.mutex.Lock()
+				this.mutex.RLock()
 				conns, ok := this.routes[dst]
 				if !ok {
+					this.mutex.RUnlock()
 					log.Info().Int("workder", workerNum).Str("src", src).
 						Str("dst", dst).
 						Msg("FetchAndProcessTunPkt::no route, packet dropped")
-					this.mutex.Unlock()
 					break
 				}
 
-				if conns == nil {
+				if len(conns) == 0 {
+					this.mutex.RUnlock()
 					log.Info().Int("workder", workerNum).Str("src", src).
 						Str("dst", dst).
 						Msg("FetchAndProcessTunPkt::has route but no connection, packet dropped")
-					this.mutex.Unlock()
 					break
 				}
 
-				keys := []string{}
+				// Copy keys inside RLock to minimize lock time
+				keys := make([]string, 0, len(conns))
 				for k := range conns {
 					keys = append(keys, k)
 				}
-				this.mutex.Unlock()
-				if len(keys) == 0 {
-					log.Info().Int("workder", workerNum).Str("src", src).
-						Str("dst", dst).
-						Msg("FetchAndProcessTunPkt::no conns, packet dropped")
-					break
-				}
+				this.mutex.RUnlock()
 
 				idx := rand.Intn(len(keys))
-
 				conn := this.server.GetConnsByAddr(keys[idx])
+
 				if conn == nil || conn.IsClosed() {
 					log.Info().Int("workder", workerNum).Str("src", src).
 						Str("dst", dst).
@@ -138,7 +147,6 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 					this.mutex.Lock()
 					delete(this.routes[dst], keys[idx])
 					this.mutex.Unlock()
-					// this.routes[dst] = conns
 					this.server.DeleteDeadConn(keys[idx])
 				} else {
 					log.Debug().Int("workder", workerNum).Str("src", src).Str("dst", dst).
@@ -168,8 +176,8 @@ func (this *App) ServerOnData(buf []byte, conn *transport.ServerConn) {
 	case *protocol.Envelope_Ping:
 		ping := ep.GetPing()
 		//根据Client发来的Ping包信息来添加路由
+		// Optimized: Minimize critical section
 		this.mutex.Lock()
-
 		if _, ok := this.routes[ping.GetIP()]; ok {
 			this.routes[ping.GetIP()][ping.GetLocalAddr()] = struct{}{}
 		} else {
@@ -177,6 +185,7 @@ func (this *App) ServerOnData(buf []byte, conn *transport.ServerConn) {
 				ping.GetLocalAddr(): struct{}{},
 			}
 		}
+		this.mutex.Unlock()
 
 		log.Debug().Str("local", ping.GetLocalAddr()).Str("ip", ping.GetIP()).
 			Msg("Proto Ping")
@@ -184,7 +193,6 @@ func (this *App) ServerOnData(buf []byte, conn *transport.ServerConn) {
 		log.Info().Interface("route", this.routes).Msg("Route Table")
 
 		this.server.SetConns(ping.GetLocalAddr(), conn)
-		this.mutex.Unlock()
 	case *protocol.Envelope_Packet:
 		pkt := iface.PacketIP(ep.GetPacket().GetPayload())
 

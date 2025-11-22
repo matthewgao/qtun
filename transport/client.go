@@ -180,17 +180,18 @@ func (c *Client) SendPing(conn *ClientConn) {
 	utils.POE(err)
 
 	localAddr := c.GetTunLocalAddrWithPortOnConn(conn)
-	env := &protocol.Envelope{
-		Type: &protocol.Envelope_Ping{
-			Ping: &protocol.MessagePing{
-				Timestamp:        time.Now().UnixNano(),
-				LocalAddr:        localAddr, //唯一的表示一个CLINET端的一个连接
-				LocalPrivateAddr: "not_use",
-				DC:               "client",
-				IP:               ip.String(),
-			},
-		},
-	}
+	
+	// Optimized: Reuse protobuf messages from pool
+	env := getEnvelope()
+	ping := getPingMessage()
+	
+	ping.Timestamp = time.Now().UnixNano()
+	ping.LocalAddr = localAddr //唯一的表示一个CLINET端的一个连接
+	ping.LocalPrivateAddr = "not_use"
+	ping.DC = "client"
+	ping.IP = ip.String()
+	
+	env.Type = &protocol.Envelope_Ping{Ping: ping}
 
 	log.Debug().Str("local_addr", localAddr).Int("conn_num", len(c.conns)).IPAddr("client_vip", ip).
 		Msg("send ping")
@@ -198,13 +199,24 @@ func (c *Client) SendPing(conn *ClientConn) {
 	utils.POE(err)
 
 	c.Write(data)
+	
+	// Return to pool after marshaling
+	putEnvelope(env)
+	putPingMessage(ping)
 }
 
 func (c *Client) SendPacket(pkt iface.PacketIP) {
-	data, _ := proto.Marshal(&protocol.Envelope{
-		Type: &protocol.Envelope_Packet{
-			Packet: &protocol.MessagePacket{Payload: pkt},
-		},
-	})
+	// Optimized: Reuse protobuf messages from pool
+	env := getEnvelope()
+	pktMsg := getPacketMessage()
+	
+	pktMsg.Payload = pkt
+	env.Type = &protocol.Envelope_Packet{Packet: pktMsg}
+	
+	data, _ := proto.Marshal(env)
 	c.Write(data)
+	
+	// Return to pool after marshaling
+	putEnvelope(env)
+	putPacketMessage(pktMsg)
 }

@@ -44,7 +44,7 @@ func NewServerConn(conn *quic.Stream, sess *quic.Conn, key string, handler GrpcH
 		handler:   handler,
 		buf:       make([]byte, 65536),
 		writeBuf:  &bytes.Buffer{},
-		chanWrite: make(chan []byte, 2),
+		chanWrite: make(chan []byte, 256), // Optimized: Increased from 2 to 256
 		chanClose: make(chan bool, 1),
 		noDelay:   noDelay,
 	}
@@ -85,7 +85,8 @@ func (sc *ServerConn) readProcess(cleanup func()) {
 	// sc.conn.SetDeadline(time.Second * 30)
 	//
 	//FIXME:seems like the bufio buf is not release even if readProcess has fully exit
-	reader := bufio.NewReaderSize(sc.conn, 1024*4)
+	// Optimized: Increased buffer from 4KB to 64KB for better throughput
+	reader := bufio.NewReaderSize(sc.conn, 1024*64)
 	for {
 		// sc.conn.SetReadDeadline(time.Now().Add(time.Second * 10))
 		data, err := sc.read(reader)
@@ -146,7 +147,10 @@ func (sc *ServerConn) read(reader *bufio.Reader) ([]byte, error) {
 	if secure == 0 {
 		return sc.buf[:dataLen], err
 	} else {
-		nonce := make([]byte, sc.aesgcm.NonceSize())
+		// Optimized: Use nonce from pool
+		nonce := getNonce()
+		defer putNonce(nonce)
+
 		_, err = io.ReadFull(reader, nonce)
 		if err != nil {
 			return nil, err
@@ -185,7 +189,10 @@ func (cc *ServerConn) write(data []byte) error {
 			return err
 		}
 	} else {
-		nonce := make([]byte, cc.aesgcm.NonceSize())
+		// Optimized: Use nonce from pool
+		nonce := getNonce()
+		defer putNonce(nonce)
+
 		_, err = io.ReadFull(crand.Reader, nonce)
 		if err != nil {
 			return err
@@ -226,13 +233,19 @@ func (cc *ServerConn) Write(data []byte) {
 }
 
 func (sc *ServerConn) SendPacket(pkt iface.PacketIP) {
-	data, _ := proto.Marshal(&protocol.Envelope{
-		Type: &protocol.Envelope_Packet{
-			Packet: &protocol.MessagePacket{Payload: pkt},
-		},
-	})
+	// Optimized: Reuse protobuf messages from pool
+	env := getEnvelope()
+	pktMsg := getPacketMessage()
 
+	pktMsg.Payload = pkt
+	env.Type = &protocol.Envelope_Packet{Packet: pktMsg}
+
+	data, _ := proto.Marshal(env)
 	sc.Write(data)
+
+	// Return to pool after marshaling
+	putEnvelope(env)
+	putPacketMessage(pktMsg)
 }
 
 func (cc *ServerConn) writeProcess() (err error) {

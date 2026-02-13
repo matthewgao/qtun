@@ -58,7 +58,9 @@ func (this *App) CleanRoute() {
 					log.Info().Str("conn", c).
 						Str("dst", dst).
 						Msg("remove dead conns from route")
+					this.mutex.Lock()
 					delete(this.routes[dst], c)
+					this.mutex.Unlock()
 					this.server.DeleteDeadConn(c)
 				}
 			}

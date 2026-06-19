@@ -14,6 +14,7 @@ import (
 	"github.com/gookit/gcli/v2/builtin"
 	"github.com/matthewgao/qtun/config"
 	"github.com/matthewgao/qtun/fileserver"
+	"github.com/matthewgao/qtun/httpproxy"
 	"github.com/matthewgao/qtun/qtun"
 	"github.com/matthewgao/qtun/socks5"
 	"github.com/matthewgao/qtun/utils/log"
@@ -29,6 +30,7 @@ type CmdOpts struct {
 	LogLevel         string `default:"0"`
 	ServerMode       bool   `default:"0"`
 	Socks5Port       int
+	HttpProxyPort    int
 	FileServerPort   int
 	FileDir          string
 	NoDelay          bool
@@ -59,6 +61,7 @@ func Command() *gcli.Command {
 	cmd.IntOpt(&cmdOpts.TransportThreads, "transport_threads", "", 1, "concurrent threads num only for client")
 	cmd.IntOpt(&cmdOpts.Mtu, "mtu", "", 1500, "MTU size")
 	cmd.IntOpt(&cmdOpts.Socks5Port, "socks5_port", "", 2080, "socks5 server port")
+	cmd.IntOpt(&cmdOpts.HttpProxyPort, "http_proxy_port", "", 2081, "http/https proxy server port")
 	cmd.IntOpt(&cmdOpts.FileServerPort, "file_svr_port", "", 6061, "http file server port")
 	cmd.BoolOpt(&cmdOpts.ServerMode, "server_mode", "", false, "if running in server mode")
 	cmd.BoolOpt(&cmdOpts.NoDelay, "nodelay", "", false, "tcp no delay")
@@ -88,12 +91,14 @@ func command(c *gcli.Command, args []string) error {
 	if cmdOpts.ProxyOnly {
 		qtunApp := qtun.NewApp()
 		qtunApp.SetProxy()
+		go httpproxy.StartHTTPProxy(fmt.Sprintf("%d", cmdOpts.HttpProxyPort))
 		socks5.StartSocks5(fmt.Sprintf("%d", cmdOpts.Socks5Port))
 		return nil
 	}
 
 	if cmdOpts.ServerMode {
 		go socks5.StartSocks5(fmt.Sprintf("%d", cmdOpts.Socks5Port))
+		go httpproxy.StartHTTPProxy(fmt.Sprintf("%d", cmdOpts.HttpProxyPort))
 	} else {
 		fileserver.Start(cmdOpts.FileDir, strconv.FormatInt(int64(cmdOpts.FileServerPort), 10))
 	}

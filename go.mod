@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/arl/statsviz v0.5.0
+	github.com/elazarl/goproxy v1.8.3
 	github.com/golang/protobuf v1.5.2
 	github.com/gookit/color v1.2.0
 	github.com/gookit/gcli/v2 v2.1.0
@@ -23,6 +24,7 @@ require (
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.39.0 // indirect
+	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/tools v0.41.0 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
 )

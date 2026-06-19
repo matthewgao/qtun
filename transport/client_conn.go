@@ -82,12 +82,18 @@ func (this *ClientConn) tryConnect() error {
 	}
 
 	// Optimized: Configure QUIC with performance parameters
+	// 流控窗口需与服务端 (server.go) 保持一致，见那里的说明。
 	quicConfig := &quic.Config{
-		MaxIncomingStreams:         1000,             // Allow more concurrent streams
-		MaxStreamReceiveWindow:     6 * 1024 * 1024,  // 6MB receive window
-		MaxConnectionReceiveWindow: 15 * 1024 * 1024, // 15MB connection window
-		KeepAlivePeriod:            30 * time.Second,
-		EnableDatagrams:            true,
+		MaxIncomingStreams:             1000,             // Allow more concurrent streams
+		InitialStreamReceiveWindow:     2 * 1024 * 1024,  // 2MB initial stream window
+		MaxStreamReceiveWindow:         16 * 1024 * 1024, // 16MB max stream window
+		InitialConnectionReceiveWindow: 2 * 1024 * 1024,  // 2MB initial connection window
+		MaxConnectionReceiveWindow:     24 * 1024 * 1024, // 24MB max connection window
+		// 与 server.go 保持一致：把 idle timeout 从默认 30s 压到 5s、keepalive 2s，
+		// 缩短 client 重启后 server 发现旧连接已死的时间，减小静默丢包窗口。
+		MaxIdleTimeout:                 5 * time.Second,
+		KeepAlivePeriod:                2 * time.Second,
+		EnableDatagrams:                true,
 	}
 
 	ctx := context.Background()

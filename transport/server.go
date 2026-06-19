@@ -95,11 +95,22 @@ func (s *Server) listen() error {
 
 	// Optimized: Configure QUIC with performance parameters
 	quicConfig := &quic.Config{
-		MaxIncomingStreams:         1000,             // Allow more concurrent streams
-		MaxStreamReceiveWindow:     6 * 1024 * 1024,  // 6MB receive window
-		MaxConnectionReceiveWindow: 15 * 1024 * 1024, // 15MB connection window
-		KeepAlivePeriod:            30 * time.Second,
-		EnableDatagrams:            true,
+		MaxIncomingStreams: 1000, // Allow more concurrent streams
+		// 针对 1Gbps@40ms 链路：BDP = 1e9*0.04/8 ≈ 5MB。默认 6MB 窗口仅 ~1.2×BDP，
+		// 自动调窗没有上探空间。把上限提到 16MB（~3×BDP），并把初始窗口从默认 512KB
+		// 提到 2MB，缩短窗口爬坡时间。两端（server/client_conn）必须保持一致。
+		InitialStreamReceiveWindow:     2 * 1024 * 1024,  // 2MB initial stream window
+		MaxStreamReceiveWindow:         16 * 1024 * 1024, // 16MB max stream window
+		InitialConnectionReceiveWindow: 2 * 1024 * 1024,  // 2MB initial connection window
+		MaxConnectionReceiveWindow:     24 * 1024 * 1024, // 24MB max connection window
+		// client 重启后旧连接已死，但 server 要等 QUIC idle timeout 才发现；在此之前
+		// 下行包会被 rand 分发到死连接上静默丢弃，表现为 client 侧间歇 ping timeout、
+		// 内层 TCP connection reset。默认 idle timeout = 30s，故障窗口长达 30s。
+		// 这里压到 5s，keepalive 2s（远小于 idle 的一半，避免空闲活连接被误断）。
+		// idle timeout 取两端协商的较小值，server/client_conn 必须保持一致。
+		MaxIdleTimeout:                 5 * time.Second,
+		KeepAlivePeriod:                2 * time.Second,
+		EnableDatagrams:                true,
 	}
 
 	// listener, err := net.ListenTCP("tcp", tcpAddr)

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -18,21 +19,41 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// routeStaleTimeout：路由表中某连接超过此时长没有刷新 ping，即视为陈旧。
+// client 每秒对每条连接发一次 ping（见 client.go），重启后旧连接（旧进程已退出）
+// 不再发 ping，其时间戳停止刷新；分发下行包时只在「新鲜」连接里随机选，于是旧连接
+// 在此窗口内即被排除，无需等 QUIC idle timeout。给 3 个 ping 周期容错以抗抖动。
+const routeStaleTimeout = 3 * time.Second
+
+// isRouteFresh 判断某连接最近一次 ping（lastPing，UnixNano）相对 now 是否仍在新鲜窗口内。
+// FetchAndProcessTunPkt 选连接与 CleanRoute 清理共用此判断，保证两处口径一致。
+func isRouteFresh(now, lastPing int64) bool {
+	return now-lastPing <= int64(routeStaleTimeout)
+}
+
 type App struct {
 	config *config.Config
 	client *transport.Client
-	routes map[string]map[string]struct{}
+	// routes[clientVIP][localAddr] = 该连接最近一次 ping 的 UnixNano 时间戳
+	routes map[string]map[string]int64
 	mutex  sync.RWMutex // Already RWMutex, good!
 	server *transport.Server
 	iface  *iface.Iface
 	tm     timer.Timer
+	// tunWriteChan 把「收到的 IP 包」从各 QUIC 读 goroutine 解耦到单个写 TUN 的 goroutine。
+	// 阻塞式的 iface.Write(syscall) 不再卡在 QUIC 读循环里拖慢流控；用单 writer（而非池）
+	// 保证写 TUN 不乱序，避免内层 TCP 把乱序误判成丢包。
+	tunWriteChan chan iface.PacketIP
+	// tunChanWarnAt 记录上次「channel 接近满」告警的纳秒时间戳，用于节流（每秒最多一条）。
+	tunChanWarnAt int64
 }
 
 func NewApp() *App {
 	return &App{
-		config: config.GetInstance(),
-		routes: make(map[string]map[string]struct{}),
-		tm:     timer.NewTimer(),
+		config:       config.GetInstance(),
+		routes:       make(map[string]map[string]int64),
+		tm:           timer.NewTimer(),
+		tunWriteChan: make(chan iface.PacketIP, 2048),
 	}
 }
 
@@ -56,26 +77,35 @@ func (this *App) CleanRoute() {
 
 		// 先持读锁对路由表做一次快照，避免无锁遍历与其他 goroutine 的写并发
 		// （否则会触发 fatal error: concurrent map iteration and map write）
-		type routeEntry struct{ dst, conn string }
+		type routeEntry struct {
+			dst, conn string
+			lastPing  int64
+		}
 		var entries []routeEntry
+		now := time.Now().UnixNano()
 		this.mutex.RLock()
 		for dst, conns := range this.routes {
-			for c := range conns {
-				entries = append(entries, routeEntry{dst: dst, conn: c})
+			for c, lastPing := range conns {
+				entries = append(entries, routeEntry{dst: dst, conn: c, lastPing: lastPing})
 			}
 		}
 		this.mutex.RUnlock()
 
-		// 锁外做耗时的连接探活，发现死连接再持写锁删除
+		// 锁外做耗时的连接探活，发现死连接（或长时间未刷新 ping 的陈旧连接）再持写锁删除
 		for _, e := range entries {
 			conn := this.server.GetConnsByAddr(e.conn)
-			if conn == nil || conn.IsClosed() {
+			stale := !isRouteFresh(now, e.lastPing)
+			if conn == nil || conn.IsClosed() || stale {
 				log.Info().Str("conn", e.conn).
 					Str("dst", e.dst).
+					Bool("stale", stale).
 					Msg("remove dead conns from route")
 				this.mutex.Lock()
 				if m, ok := this.routes[e.dst]; ok {
 					delete(m, e.conn)
+					if len(m) == 0 {
+						delete(this.routes, e.dst)
+					}
 				}
 				this.mutex.Unlock()
 				this.server.DeleteDeadConn(e.conn)
@@ -91,6 +121,9 @@ func (this *App) StartFetchTunInterface() error {
 	if err != nil {
 		return err
 	}
+
+	// 单个写 TUN 的 goroutine，消费 tunWriteChan（接收端流水线解耦）
+	go this.tunWriter()
 
 	// Optimized: Dynamic worker count based on CPU cores
 	// Use 2x CPU cores for better I/O parallelism, with min 4 and max 32
@@ -112,6 +145,35 @@ func (this *App) StartFetchTunInterface() error {
 	return this.FetchAndProcessTunPkt(numWorkers - 1)
 }
 
+// enqueueTunWrite 把收到的 IP 包交给单个 tunWriter。
+// 当 channel 占用 ≥90% 时，说明 TUN writer 跟不上、接收侧成为瓶颈，节流打印一次告警
+// （每秒最多一条）。平时仅做一次 len 比较，零额外开销。
+func (this *App) enqueueTunWrite(pkt iface.PacketIP) {
+	if l, c := len(this.tunWriteChan), cap(this.tunWriteChan); l*10 >= c*9 {
+		now := time.Now().UnixNano()
+		last := atomic.LoadInt64(&this.tunChanWarnAt)
+		if now-last > int64(time.Second) && atomic.CompareAndSwapInt64(&this.tunChanWarnAt, last, now) {
+			log.Warn().Int("len", l).Int("cap", c).
+				Msg("tunWriteChan 接近满：TUN writer 跟不上，接收侧可能受限（可考虑多队列 TUN）")
+		}
+	}
+	this.tunWriteChan <- pkt
+}
+
+// tunWriter 是唯一向 TUN 设备写入的 goroutine，保证写入顺序、避免阻塞 QUIC 读循环。
+func (this *App) tunWriter() {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Error().Interface("err", err).Msg("tunWriter panic")
+		}
+	}()
+	for pkt := range this.tunWriteChan {
+		if _, err := this.iface.Write(pkt); err != nil {
+			log.Error().Err(err).Msg("tunWriter::write to tun fail")
+		}
+	}
+}
+
 func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 	mtu := config.GetInstance().Mtu
 	pkt := iface.NewPacketIP(mtu)
@@ -128,6 +190,8 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 			Int("len", n).Msg("FetchAndProcessTunPkt::got tun packet")
 
 		if config.GetInstance().ServerMode {
+			// 一个包的处理很快，循环外取一次「现在」用于新鲜度判断即可
+			now := time.Now().UnixNano()
 			// Optimized: Use RLock for read operations and minimize critical section
 			for {
 				this.mutex.RLock()
@@ -140,20 +204,24 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 					break
 				}
 
-				if len(conns) == 0 {
-					this.mutex.RUnlock()
-					log.Info().Int("workder", workerNum).Str("src", src).
-						Str("dst", dst).
-						Msg("FetchAndProcessTunPkt::has route but no connection, packet dropped")
-					break
-				}
-
+				// 只把「近期仍在发 ping」的连接作为候选：client 重启后旧（已死）连接
+				// 不再刷新 lastPing，routeStaleTimeout 内即被排除，无需等 QUIC idle
+				// timeout，从根上避免把下行包随机分发到陈旧连接造成静默丢包。
 				// Copy keys inside RLock to minimize lock time
 				keys := make([]string, 0, len(conns))
-				for k := range conns {
-					keys = append(keys, k)
+				for k, lastPing := range conns {
+					if isRouteFresh(now, lastPing) {
+						keys = append(keys, k)
+					}
 				}
 				this.mutex.RUnlock()
+
+				if len(keys) == 0 {
+					log.Info().Int("workder", workerNum).Str("src", src).
+						Str("dst", dst).
+						Msg("FetchAndProcessTunPkt::has route but no fresh connection, packet dropped")
+					break
+				}
 
 				idx := rand.Intn(len(keys))
 				conn := this.server.GetConnsByAddr(keys[idx])
@@ -163,7 +231,12 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 						Str("dst", dst).
 						Msg("FetchAndProcessTunPkt::no connection, packet dropped")
 					this.mutex.Lock()
-					delete(this.routes[dst], keys[idx])
+					if m, ok := this.routes[dst]; ok {
+						delete(m, keys[idx])
+						if len(m) == 0 {
+							delete(this.routes, dst)
+						}
+					}
 					this.mutex.Unlock()
 					this.server.DeleteDeadConn(keys[idx])
 				} else {
@@ -195,12 +268,15 @@ func (this *App) ServerOnData(buf []byte, conn *transport.ServerConn) {
 		ping := ep.GetPing()
 		//根据Client发来的Ping包信息来添加路由
 		// Optimized: Minimize critical section
+		// 每次收到 ping 都刷新该连接的时间戳，作为「连接仍然活着」的应用层信号；
+		// 分发时据此挑掉陈旧连接（见 routeStaleTimeout / FetchAndProcessTunPkt）。
+		now := time.Now().UnixNano()
 		this.mutex.Lock()
 		if _, ok := this.routes[ping.GetIP()]; ok {
-			this.routes[ping.GetIP()][ping.GetLocalAddr()] = struct{}{}
+			this.routes[ping.GetIP()][ping.GetLocalAddr()] = now
 		} else {
-			this.routes[ping.GetIP()] = map[string]struct{}{
-				ping.GetLocalAddr(): struct{}{},
+			this.routes[ping.GetIP()] = map[string]int64{
+				ping.GetLocalAddr(): now,
 			}
 		}
 		// 仅在 Debug 级别真正启用时，才在持锁状态下把路由表拷成字符串快照，
@@ -225,7 +301,8 @@ func (this *App) ServerOnData(buf []byte, conn *transport.ServerConn) {
 			IPAddr("dst", pkt.GetDestinationIP()).
 			Msg("received protobuf packet")
 
-		this.iface.Write(pkt)
+		// 交给单个 tunWriter goroutine，避免阻塞式写 TUN 卡住 QUIC 读循环
+		this.enqueueTunWrite(pkt)
 	}
 }
 
@@ -266,7 +343,8 @@ func (this *App) ClientOnData(buf []byte) {
 			IPAddr("dst", pkt.GetDestinationIP()).
 			Msg("received protobuf packet")
 
-		this.iface.Write(pkt)
+		// 交给单个 tunWriter goroutine，避免阻塞式写 TUN 卡住 QUIC 读循环
+		this.enqueueTunWrite(pkt)
 	}
 }
 

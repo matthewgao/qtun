@@ -1,6 +1,7 @@
 package qtun
 
 import (
+	"fmt"
 	"math/rand"
 	"os/exec"
 	"runtime"
@@ -13,6 +14,7 @@ import (
 	"github.com/matthewgao/qtun/protocol"
 	"github.com/matthewgao/qtun/transport"
 	"github.com/matthewgao/qtun/utils/timer"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -51,18 +53,32 @@ func (this *App) Run() error {
 func (this *App) CleanRoute() {
 	this.tm.RegisterTask(func() {
 		log.Info().Msg("start to clean route")
+
+		// 先持读锁对路由表做一次快照，避免无锁遍历与其他 goroutine 的写并发
+		// （否则会触发 fatal error: concurrent map iteration and map write）
+		type routeEntry struct{ dst, conn string }
+		var entries []routeEntry
+		this.mutex.RLock()
 		for dst, conns := range this.routes {
 			for c := range conns {
-				conn := this.server.GetConnsByAddr(c)
-				if conn == nil || conn.IsClosed() {
-					log.Info().Str("conn", c).
-						Str("dst", dst).
-						Msg("remove dead conns from route")
-					this.mutex.Lock()
-					delete(this.routes[dst], c)
-					this.mutex.Unlock()
-					this.server.DeleteDeadConn(c)
+				entries = append(entries, routeEntry{dst: dst, conn: c})
+			}
+		}
+		this.mutex.RUnlock()
+
+		// 锁外做耗时的连接探活，发现死连接再持写锁删除
+		for _, e := range entries {
+			conn := this.server.GetConnsByAddr(e.conn)
+			if conn == nil || conn.IsClosed() {
+				log.Info().Str("conn", e.conn).
+					Str("dst", e.dst).
+					Msg("remove dead conns from route")
+				this.mutex.Lock()
+				if m, ok := this.routes[e.dst]; ok {
+					delete(m, e.conn)
 				}
+				this.mutex.Unlock()
+				this.server.DeleteDeadConn(e.conn)
 			}
 		}
 	}, time.Minute)
@@ -187,12 +203,19 @@ func (this *App) ServerOnData(buf []byte, conn *transport.ServerConn) {
 				ping.GetLocalAddr(): struct{}{},
 			}
 		}
+		// 仅在 Debug 级别真正启用时，才在持锁状态下把路由表拷成字符串快照，
+		// 避免锁外把活的共享 map 交给日志库反射遍历而与其他 goroutine 的写并发，
+		// 同时在非 Debug 级别下省去无谓的序列化开销
+		routeSnapshot := ""
+		if zerolog.GlobalLevel() <= zerolog.DebugLevel {
+			routeSnapshot = fmt.Sprintf("%v", this.routes)
+		}
 		this.mutex.Unlock()
 
 		log.Debug().Str("local", ping.GetLocalAddr()).Str("ip", ping.GetIP()).
 			Msg("Proto Ping")
 
-		log.Info().Interface("route", this.routes).Msg("Route Table")
+		log.Debug().Str("route", routeSnapshot).Msg("Route Table")
 
 		this.server.SetConns(ping.GetLocalAddr(), conn)
 	case *protocol.Envelope_Packet:

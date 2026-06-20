@@ -12,6 +12,8 @@ require (
 	github.com/rs/zerolog v1.17.2
 	github.com/songgao/water v0.0.0-20190725173103-fd331bda3f4b
 	golang.org/x/net v0.49.0
+	golang.org/x/sys v0.40.0
+	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2
 )
 
 require (
@@ -22,7 +24,6 @@ require (
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/mod v0.32.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.39.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/tools v0.41.0 // indirect

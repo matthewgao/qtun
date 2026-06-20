@@ -95,4 +95,13 @@ Examples:
 
 * MacOS 支持
 * Linux 支持
-* Windows 不支持
+* Windows 支持（基于 Wintun，需管理员权限）
+
+### Windows 说明
+
+* 隧道模式基于 [Wintun](https://www.wintun.net) 驱动（Layer 3 TUN）。运行前需从
+  wintun.net 下载对应架构的 `wintun.dll`，放到 `qtun-win.exe` 同目录。
+* 创建网卡、配置 IP/路由需要**管理员权限**（请以管理员身份运行）。
+* 客户端模式会通过注册表把系统代理设为自动配置（PAC，`http://127.0.0.1:6061/proxy.pac`），
+  进程退出（Ctrl+C / 终止）时自动还原。
+* `--proxyonly` 模式仅启动 SOCKS5/HTTP 代理，不需要 TUN、不需要管理员权限。

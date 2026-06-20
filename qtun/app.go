@@ -3,10 +3,12 @@ package qtun
 import (
 	"fmt"
 	"math/rand"
-	"os/exec"
+	"os"
+	"os/signal"
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -38,7 +40,7 @@ type App struct {
 	routes map[string]map[string]int64
 	mutex  sync.RWMutex // Already RWMutex, good!
 	server *transport.Server
-	iface  *iface.Iface
+	iface  iface.Device
 	tm     timer.Timer
 	// tunWriteChan 把「收到的 IP 包」从各 QUIC 读 goroutine 解耦到单个写 TUN 的 goroutine。
 	// 阻塞式的 iface.Write(syscall) 不再卡在 QUIC 读循环里拖慢流控；用单 writer（而非池）
@@ -348,24 +350,26 @@ func (this *App) ClientOnData(buf []byte) {
 	}
 }
 
+// pacURL 是 client 模式下供系统自动代理使用的 PAC 文件地址，由本机的文件服务器
+// （fileserver，默认 6061 端口）提供。各平台的实际设置逻辑见 proxy_<os>.go。
+const pacURL = "http://127.0.0.1:6061/proxy.pac"
+
 func (this *App) SetProxy() {
-	var cmd *exec.Cmd
+	setSystemProxy(pacURL)
+	// 只有真正设置过系统代理的路径（client / proxyonly）才注册退出还原；
+	// server 模式不调 SetProxy，退出时不会动用户的代理设置。
+	this.registerProxyCleanup()
+}
 
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("networksetup", "-setautoproxyurl", "Wi-Fi", "http://127.0.0.1:6061/proxy.pac")
-		log.Info().Str("cmd", cmd.String()).Msg("set system proxy")
-	case "linux":
-		log.Info().Msg("set system proxy not support please set it manually")
-		return
-	case "windows":
-		log.Info().Msg("set system proxy not support please set it manually")
-		return
-	}
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Error().Err(err).Str("cmd_output", string(output)).
-			Msg("set system proxy fail")
-	}
+// registerProxyCleanup 监听中断/终止信号，退出前 best-effort 还原系统代理，
+// 避免进程结束后把用户流量继续指向已失效的本地代理。
+func (this *App) registerProxyCleanup() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		log.Info().Msg("received signal, restoring system proxy")
+		unsetSystemProxy()
+		os.Exit(0)
+	}()
 }

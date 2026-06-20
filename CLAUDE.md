@@ -44,9 +44,17 @@ PAC file server 6061, statsviz 6060).
 The interesting logic is spread across `qtun/`, `transport/`, and `iface/`; reconstruct it from
 the end-to-end packet path rather than per-file.
 
-**Layers (Linux/macOS only; Windows unsupported):**
+**Layers (Linux / macOS / Windows):**
 `iface/` (TUN device) → `qtun/app.go` (orchestration + routing) → `transport/` (QUIC + framing +
 crypto) ← `protocol/` (protobuf `Envelope`).
+
+`iface/` is a platform-split abstraction: `iface.Device` interface (`iface.go`) with a `New`
+factory; `iface_unix.go` (`//go:build linux || darwin`) is the songgao/water + `ifconfig`/`route`
+impl, `iface_windows.go` (`//go:build windows`) is the Wintun impl (`netsh` for IP/MTU). Likewise
+system-proxy setup is split into `qtun/proxy_{darwin,linux,windows}.go`. Windows needs admin rights
++ `wintun.dll` next to the exe; the registry proxy is auto-restored on exit (SIGINT/SIGTERM).
+Any Windows-only dependency (wintun, x/sys/windows/registry) **must** stay inside `_windows.go`
+files so Linux/macOS builds don't break.
 
 **Egress (TUN → peer):** `App.FetchAndProcessTunPkt` (N=2×CPU worker goroutines) reads IP packets
 from the TUN device. On the **client** it just calls `client.SendPacket` (round-robins across

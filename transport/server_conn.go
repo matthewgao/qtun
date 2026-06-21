@@ -3,6 +3,7 @@ package transport
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/cipher"
 	crand "crypto/rand"
 	"encoding/binary"
@@ -14,7 +15,6 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/matthewgao/qtun/iface"
 	"github.com/matthewgao/qtun/protocol"
-	"github.com/matthewgao/qtun/utils"
 	"github.com/quic-go/quic-go"
 	"github.com/rs/zerolog/log"
 )
@@ -73,8 +73,8 @@ func (sc *ServerConn) readProcess(cleanup func()) {
 		log.Warn().Msg("ServerConn::conn run, exit1")
 	}()
 
-	err := sc.crypto()
-	utils.POE(err)
+	// 注意：crypto() 已在 server.go listen 中于启动各 goroutine 前同步调用，这里不再重复
+	// 调用，避免与 readDatagrams 并发读写 sc.aesgcm 造成数据竞争。
 
 	// sc.conn.SetReadBuffer(1024 * 1024)
 	// sc.conn.SetWriteBuffer(1024 * 1024)
@@ -241,11 +241,45 @@ func (sc *ServerConn) SendPacket(pkt iface.PacketIP) {
 	env.Type = &protocol.Envelope_Packet{Packet: pktMsg}
 
 	data, _ := proto.Marshal(env)
-	sc.Write(data)
 
-	// Return to pool after marshaling
+	// Return to pool after marshaling（data 已是独立副本，pkt 也已被拷贝，可安全复用）
 	putEnvelope(env)
 	putPacketMessage(pktMsg)
+
+	// 数据面走 datagram（不可靠），规避可靠 stream 的队头阻塞/双重重传。frameDatagram
+	// 每次新分配缓冲、用 pool nonce + crypto/rand，可被多个 TUN worker 并发调用，无需单
+	// writer。aesgcm 在 listen 中启动 goroutine 前已就绪。
+	framed := frameDatagram(sc.aesgcm, data)
+	if framed == nil {
+		return
+	}
+	if err := sc.sess.SendDatagram(framed); err != nil {
+		warnDatagramDrop(err, len(framed))
+	}
+}
+
+// readDatagrams 接收数据面 datagram（IP 报文），解密后交给 handler。控制面（ping、
+// 关闭检测）仍走 stream 的 readProcess。连接关闭时 ReceiveDatagram 返回 error，退出。
+func (cc *ServerConn) readDatagrams() {
+	sess := cc.sess
+	if sess == nil {
+		return
+	}
+	for {
+		d, err := sess.ReceiveDatagram(context.Background())
+		if err != nil {
+			log.Debug().Err(err).Msg("ServerConn::readDatagrams exit")
+			return
+		}
+		msg, err := decodeDatagram(cc.aesgcm, d)
+		if err != nil {
+			log.Debug().Err(err).Msg("ServerConn::readDatagrams decode fail, drop")
+			continue
+		}
+		if cc.handler != nil {
+			cc.handler.ServerOnData(msg, cc)
+		}
+	}
 }
 
 func (cc *ServerConn) writeProcess() (err error) {

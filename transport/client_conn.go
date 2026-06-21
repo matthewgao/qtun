@@ -182,8 +182,9 @@ func (this *ClientConn) run() {
 				Msg("connect server fail")
 			time.Sleep(time.Millisecond * 1000)
 		} else {
-			go this.writeProcess()
-			err = this.readProcess()
+			go this.writeProcess()    // 控制面：stream 发送 ping
+			go this.readDatagrams()   // 数据面：接收 datagram IP 报文
+			err = this.readProcess()  // 控制面：stream 接收 + 关闭检测
 			if err == nil {
 				log.Error().Int("thread_index", this.index).Str("server_addr", this.remoteAddr).
 					Msg("client exit from process ")
@@ -307,6 +308,47 @@ func (this *ClientConn) Write(data []byte) {
 	this.chanWrite <- data
 }
 
+// WriteDatagram 把一条已 marshal 的 Envelope（数据面 IP 报文）封包后通过 QUIC datagram
+// 发送（不可靠，规避可靠 stream 的队头阻塞/双重重传）。可被多个 TUN worker 并发调用。
+func (this *ClientConn) WriteDatagram(data []byte) {
+	if this == nil || this.session == nil {
+		return
+	}
+	framed := frameDatagram(this.aesgcm, data)
+	if framed == nil {
+		return
+	}
+	if err := this.session.SendDatagram(framed); err != nil {
+		warnDatagramDrop(err, len(framed))
+	}
+}
+
+// readDatagrams 接收数据面 datagram，解密后交给 handler.ClientOnData。控制面（关闭检测）
+// 仍走 stream 的 readProcess。捕获本地 session 引用，避免重连时 this.session 被重新赋值
+// 引发竞争；连接关闭时 ReceiveDatagram 返回 error，goroutine 退出。
+func (this *ClientConn) readDatagrams() {
+	sess := this.session
+	if sess == nil {
+		return
+	}
+	for {
+		d, err := sess.ReceiveDatagram(context.Background())
+		if err != nil {
+			log.Debug().Err(err).Int("thread_index", this.index).
+				Msg("ClientConn::readDatagrams exit")
+			return
+		}
+		msg, err := decodeDatagram(this.aesgcm, d)
+		if err != nil {
+			log.Debug().Err(err).Msg("ClientConn::readDatagrams decode fail, drop")
+			continue
+		}
+		if this.handler != nil {
+			this.handler.ClientOnData(msg)
+		}
+	}
+}
+
 // func (this *ClientConn) WriteNow(data []byte) error {
 // 	this.chanWrite <- data
 // 	return nil
@@ -326,9 +368,8 @@ func (sc *ClientConn) readProcess() error {
 		sc.session.CloseWithError(0x1, "fail to read")
 		sc.setConnected(false)
 	}()
-	var err error
-	err = sc.crypto()
-	utils.POE(err)
+	// crypto() 已在 run() 启动各 goroutine 前同步调用，这里不再重复，避免与
+	// readDatagrams 并发读写 sc.aesgcm 造成数据竞争。
 
 	// sc.conn.SetReadBuffer(1024 * 1024)
 	// sc.conn.SetWriteBuffer(1024 * 1024)

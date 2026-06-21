@@ -111,7 +111,7 @@ func (c *Client) ConnectWait() {
 	}
 }
 
-//随机找一个连接发送请求
+// 随机找一个连接发送请求
 func (c *Client) WriteNow(data []byte) {
 	if c.threads == 1 {
 		conn := c.conns[0]
@@ -129,6 +129,20 @@ func (c *Client) Write(data []byte) {
 	next := int(serial) % c.threads
 	conn := c.conns[next]
 	conn.Write(data)
+}
+
+// WriteDatagram 把数据面报文经 datagram 发送，按 flowHash 做「流亲和」选连接：同一条流
+// 固定走同一条连接，避免跨连接乱序。与 Write（走 stream，用于 ping）区分：数据走不可靠
+// datagram 以规避可靠 stream 的队头阻塞/双重重传。
+func (c *Client) WriteDatagram(data []byte, flowHash uint32) {
+	var next int
+	if config.GetInstance().FlowHash {
+		next = int(flowHash % uint32(c.threads)) // 流亲和：同流固定一条连接
+	} else {
+		next = int(atomic.AddInt64(&c.serial, 1)) % c.threads // 默认：轮询
+	}
+	conn := c.conns[next]
+	conn.WriteDatagram(data)
 }
 
 //随机找一个可用的连接，为了获取连接地址
@@ -180,17 +194,17 @@ func (c *Client) SendPing(conn *ClientConn) {
 	utils.POE(err)
 
 	localAddr := c.GetTunLocalAddrWithPortOnConn(conn)
-	
+
 	// Optimized: Reuse protobuf messages from pool
 	env := getEnvelope()
 	ping := getPingMessage()
-	
+
 	ping.Timestamp = time.Now().UnixNano()
 	ping.LocalAddr = localAddr //唯一的表示一个CLINET端的一个连接
 	ping.LocalPrivateAddr = "not_use"
 	ping.DC = "client"
 	ping.IP = ip.String()
-	
+
 	env.Type = &protocol.Envelope_Ping{Ping: ping}
 
 	log.Debug().Str("local_addr", localAddr).Int("conn_num", len(c.conns)).IPAddr("client_vip", ip).
@@ -199,7 +213,7 @@ func (c *Client) SendPing(conn *ClientConn) {
 	utils.POE(err)
 
 	c.Write(data)
-	
+
 	// Return to pool after marshaling
 	putEnvelope(env)
 	putPingMessage(ping)
@@ -209,13 +223,13 @@ func (c *Client) SendPacket(pkt iface.PacketIP) {
 	// Optimized: Reuse protobuf messages from pool
 	env := getEnvelope()
 	pktMsg := getPacketMessage()
-	
+
 	pktMsg.Payload = pkt
 	env.Type = &protocol.Envelope_Packet{Packet: pktMsg}
-	
+
 	data, _ := proto.Marshal(env)
-	c.Write(data)
-	
+	c.WriteDatagram(data, pkt.FlowHash()) // 数据面走 datagram + 流亲和；ping 仍走 stream
+
 	// Return to pool after marshaling
 	putEnvelope(env)
 	putPacketMessage(pktMsg)

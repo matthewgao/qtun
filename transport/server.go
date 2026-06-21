@@ -142,6 +142,12 @@ func (s *Server) listen() error {
 		// log.Info().Interface("from", stream).Msg("server new accept")
 
 		serverConn := NewServerConn(stream, sess, s.key, s.handler, config.GetInstance().NoDelay)
+		// 同步初始化加密：aesgcm 会被 readProcess（stream）与 readDatagrams（datagram）
+		// 两个 goroutine 并发读取，必须在启动它们之前设置好，避免对该字段的数据竞争。
+		if err := serverConn.crypto(); err != nil {
+			log.Error().Err(err).Str("addr", s.publicAddr).Msg("server conn crypto init fail")
+			continue
+		}
 		// s.ClientConns[sess.RemoteAddr().String()] = serverConn
 		// log.Info().Int("conn_size", len(s.Conns)).
 		// 	Int("reverse_size", len(s.ConnsReverse)).
@@ -149,8 +155,9 @@ func (s *Server) listen() error {
 		// 	Str("from", sess.RemoteAddr().String()).Msg("server start to read from connection")
 
 		//start to read pkt from connection
-		go serverConn.writeProcess()
-		go serverConn.readProcess(func() {
+		go serverConn.writeProcess()      // 控制面 stream 发送（当前 server 不主动发，备用）
+		go serverConn.readDatagrams()     // 数据面：接收 datagram IP 报文
+		go serverConn.readProcess(func() { // 控制面：接收 stream（ping）+ 关闭检测
 			s.RemoveConnByConnPointer(serverConn)
 			// log.Warn().Str("from", serverConn.conn.RemoteAddr().String()).
 			// 	Interface("alive_conns", s.Conns).Msg("server read thread exit")

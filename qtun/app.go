@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -225,7 +226,17 @@ func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 					break
 				}
 
-				idx := rand.Intn(len(keys))
+				// 选连接：默认随机分发（单流友好）；开启 FlowHash 时按五元组哈希固定到
+				// 同一条连接（流亲和，多连接聚合吞吐更高、单流受单连接上限）。
+				// 注意：keys 来自 map 遍历、顺序每次随机，流亲和前必须 sort 成稳定顺序，
+				// 否则同一哈希每包仍指向不同连接，亲和形同虚设。
+				var idx int
+				if config.GetInstance().FlowHash {
+					sort.Strings(keys)
+					idx = int(pkt.FlowHash() % uint32(len(keys)))
+				} else {
+					idx = rand.Intn(len(keys))
+				}
 				conn := this.server.GetConnsByAddr(keys[idx])
 
 				if conn == nil || conn.IsClosed() {

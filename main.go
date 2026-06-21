@@ -35,6 +35,7 @@ type CmdOpts struct {
 	FileDir          string
 	NoDelay          bool
 	ProxyOnly        bool
+	FlowHash         bool
 }
 
 // options for the command
@@ -66,6 +67,7 @@ func Command() *gcli.Command {
 	cmd.BoolOpt(&cmdOpts.ServerMode, "server_mode", "", false, "if running in server mode")
 	cmd.BoolOpt(&cmdOpts.NoDelay, "nodelay", "", false, "tcp no delay")
 	cmd.BoolOpt(&cmdOpts.ProxyOnly, "proxyonly", "", false, "only enable proxy")
+	cmd.BoolOpt(&cmdOpts.FlowHash, "flow_hash", "", false, "flow affinity: pin each flow to one connection by 5-tuple hash (higher multi-conn aggregate, lower single-flow)")
 
 	return cmd
 }
@@ -84,6 +86,7 @@ func command(c *gcli.Command, args []string) error {
 		Mtu:              cmdOpts.Mtu,
 		ServerMode:       cmdOpts.ServerMode,
 		NoDelay:          cmdOpts.NoDelay,
+		FlowHash:         cmdOpts.FlowHash,
 	})
 
 	log.InitLog(cmdOpts.LogLevel)

@@ -39,6 +39,26 @@ See `AGENTS.md` for Cloud/TUN-less environment notes and `PERFORMANCE_*.md` for 
 Note: README port examples are stale — trust the code defaults (socks5 2080, http proxy 2081,
 PAC file server 6061, statsviz 6060).
 
+## Transport modes — UDP (default) vs QUIC
+
+There are **two** transports, picked by `--udp` (default `true`):
+
+- **`--udp` (default): raw UDP + AES-GCM, WireGuard-style** (`transport/udp.go`, `UDPClient` /
+  `UDPServer`). One UDP socket per side. **No transport-layer congestion control** — the tunnel is
+  a dumb pipe and the inner TCP owns congestion control. This exists because QUIC (even via
+  datagram) rate-limits a single flow to ~20Mbps *without loss* via its CC/pacer/32-deep send
+  queue (pprof: only ~35% CPU, RTT flat → not CPU, not loss → the QUIC layer itself was throttling).
+  Server keeps `routes[vip] = {udpAddr, lastPing}` learned from pings (keyed by the **UDP source
+  addr**, since NAT hides the client's real addr); freshness via `udpRouteFresh` (3s), same idea as
+  the QUIC path. App delegates wire+routing to the UDP transport and only implements
+  `PacketSink.WriteToTun` (→ the single `tunWriter`).
+- **`--udp=false`: QUIC** — the older path described below. Kept for A/B comparison. `--flow_hash`
+  and `--transport_threads` only apply here.
+
+Both reuse the same `frameDatagram`/`decodeDatagram` framing, the same protobuf `Envelope`
+(`oneof ping/packet`), and the same AES-128-GCM (`--key`). The sections below describe the **QUIC**
+path; the UDP path mirrors its packet semantics minus QUIC's streams/CC.
+
 ## Architecture — the cross-file data flow
 
 The interesting logic is spread across `qtun/`, `transport/`, and `iface/`; reconstruct it from

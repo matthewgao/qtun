@@ -26,7 +26,7 @@ type CmdOpts struct {
 	Listen           string `default:"0.0.0.0:8080"`
 	TransportThreads int    `default:"1"`
 	Ip               string `default:"10.237.0.1/16"`
-	Mtu              int    `default:"1500"`
+	Mtu              int    `default:"1400"`
 	LogLevel         string `default:"0"`
 	ServerMode       bool   `default:"0"`
 	Socks5Port       int
@@ -36,6 +36,8 @@ type CmdOpts struct {
 	NoDelay          bool
 	ProxyOnly        bool
 	FlowHash         bool
+	UDP              bool
+	EgressWorkers    int
 }
 
 // options for the command
@@ -60,7 +62,7 @@ func Command() *gcli.Command {
 	cmd.StrOpt(&cmdOpts.LogLevel, "log_level", "", "info", "log level")
 	cmd.StrOpt(&cmdOpts.FileDir, "file_dir", "", "../static", "http file server directory")
 	cmd.IntOpt(&cmdOpts.TransportThreads, "transport_threads", "", 1, "concurrent threads num only for client")
-	cmd.IntOpt(&cmdOpts.Mtu, "mtu", "", 1500, "MTU size")
+	cmd.IntOpt(&cmdOpts.Mtu, "mtu", "", 1400, "tunnel MTU; keep room for encapsulation (~63B) over a 1500 path, else outer UDP/QUIC packets fragment")
 	cmd.IntOpt(&cmdOpts.Socks5Port, "socks5_port", "", 2080, "socks5 server port")
 	cmd.IntOpt(&cmdOpts.HttpProxyPort, "http_proxy_port", "", 2081, "http/https proxy server port")
 	cmd.IntOpt(&cmdOpts.FileServerPort, "file_svr_port", "", 6061, "http file server port")
@@ -68,6 +70,8 @@ func Command() *gcli.Command {
 	cmd.BoolOpt(&cmdOpts.NoDelay, "nodelay", "", false, "tcp no delay")
 	cmd.BoolOpt(&cmdOpts.ProxyOnly, "proxyonly", "", false, "only enable proxy")
 	cmd.BoolOpt(&cmdOpts.FlowHash, "flow_hash", "", false, "flow affinity: pin each flow to one connection by 5-tuple hash (higher multi-conn aggregate, lower single-flow)")
+	cmd.BoolOpt(&cmdOpts.UDP, "udp", "", true, "data/control plane over raw UDP + AES-GCM (WireGuard-style) instead of QUIC; set false to use QUIC")
+	cmd.IntOpt(&cmdOpts.EgressWorkers, "egress_workers", "", 0, "TUN read/send worker count (0=auto 2xCPU); set 1 to preserve single-flow ordering")
 
 	return cmd
 }
@@ -87,6 +91,8 @@ func command(c *gcli.Command, args []string) error {
 		ServerMode:       cmdOpts.ServerMode,
 		NoDelay:          cmdOpts.NoDelay,
 		FlowHash:         cmdOpts.FlowHash,
+		UDP:              cmdOpts.UDP,
+		EgressWorkers:    cmdOpts.EgressWorkers,
 	})
 
 	log.InitLog(cmdOpts.LogLevel)

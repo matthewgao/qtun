@@ -41,7 +41,10 @@ type App struct {
 	routes map[string]map[string]int64
 	mutex  sync.RWMutex // Already RWMutex, good!
 	server *transport.Server
-	iface  iface.Device
+	// UDP 传输（裸 UDP + AES-GCM，类 WireGuard）；config.UDP 为 true 时启用，替代 QUIC。
+	udpClient *transport.UDPClient
+	udpServer *transport.UDPServer
+	iface     iface.Device
 	tm     timer.Timer
 	// tunWriteChan 把「收到的 IP 包」从各 QUIC 读 goroutine 解耦到单个写 TUN 的 goroutine。
 	// 阻塞式的 iface.Write(syscall) 不再卡在 QUIC 读循环里拖慢流控；用单 writer（而非池）
@@ -61,6 +64,9 @@ func NewApp() *App {
 }
 
 func (this *App) Run() error {
+	if config.GetInstance().UDP {
+		return this.runUDP()
+	}
 	if config.GetInstance().ServerMode {
 		this.server = transport.NewServer(this.config.Listen, this, this.config.Key)
 		go this.server.Start()
@@ -72,6 +78,32 @@ func (this *App) Run() error {
 	}
 
 	return this.StartFetchTunInterface()
+}
+
+// runUDP 启动裸 UDP 传输路径（替代 QUIC）。server 监听并按 ping 维护 VIP→UDP 地址路由；
+// client 拨号并每秒 ping。数据面出向在 FetchAndProcessTunPkt 里按 config.UDP 分支，入向由
+// UDP 读循环经 WriteToTun → tunWriter 写回 TUN。
+func (this *App) runUDP() error {
+	if config.GetInstance().ServerMode {
+		this.udpServer = transport.NewUDPServer(this.config.Listen, this.config.Key, this)
+		if err := this.udpServer.Start(); err != nil {
+			return err
+		}
+		this.registerShutdown()
+	} else {
+		this.udpClient = transport.NewUDPClient(this.config.RemoteAddrs, this.config.Key, this)
+		if err := this.udpClient.Start(); err != nil {
+			return err
+		}
+		this.SetProxy()
+	}
+	return this.StartFetchTunInterface()
+}
+
+// WriteToTun 实现 transport.PacketSink：UDP 读循环收到的内层 IP 报文经此进入单个 tunWriter
+// 保序写 TUN（与 QUIC 路径的 enqueueTunWrite 等价）。
+func (this *App) WriteToTun(pkt iface.PacketIP) {
+	this.enqueueTunWrite(pkt)
 }
 
 func (this *App) CleanRoute() {
@@ -118,7 +150,17 @@ func (this *App) CleanRoute() {
 	this.tm.Start()
 }
 
+// tunnelEncapOverhead 是隧道封装的近似开销（字节）：外层 IPv4(20)+UDP(8)=28，AES-GCM 封包
+// 1+nonce(12)+tag(16)=29，protobuf Envelope 包裹 ~6。内层 MTU 加上它若超过路径 MTU(常见 1500)，
+// 外层报文会被分片（一个分片丢=整包丢，很脆），应调小 --mtu。
+const tunnelEncapOverhead = 28 + 29 + 6
+
 func (this *App) StartFetchTunInterface() error {
+	if mtu := this.config.Mtu; mtu+tunnelEncapOverhead > 1500 {
+		log.Warn().Int("mtu", mtu).Int("encap_overhead", tunnelEncapOverhead).
+			Msg("MTU 偏大：内层 MTU + 封装开销超过 1500，外层报文可能在常见路径上分片，建议 --mtu <= 1400")
+	}
+
 	this.iface = iface.New("", this.config.Ip, this.config.Mtu)
 	err := this.iface.Start()
 	if err != nil {
@@ -128,14 +170,18 @@ func (this *App) StartFetchTunInterface() error {
 	// 单个写 TUN 的 goroutine，消费 tunWriteChan（接收端流水线解耦）
 	go this.tunWriter()
 
-	// Optimized: Dynamic worker count based on CPU cores
-	// Use 2x CPU cores for better I/O parallelism, with min 4 and max 32
-	numWorkers := runtime.NumCPU() * 2
-	if numWorkers < 4 {
-		numWorkers = 4
-	}
-	if numWorkers > 32 {
-		numWorkers = 32
+	// Worker count: 显式配置优先（--egress_workers，设 1 可保单流顺序）；否则自动 2×CPU，
+	// 夹在 [4,32]。注意 worker>1 时多个 goroutine 抢读同一 TUN fd 并并发发送，会让单条流
+	// 的包在出向乱序——单流吞吐受限时这是首要排查项。
+	numWorkers := config.GetInstance().EgressWorkers
+	if numWorkers <= 0 {
+		numWorkers = runtime.NumCPU() * 2
+		if numWorkers < 4 {
+			numWorkers = 4
+		}
+		if numWorkers > 32 {
+			numWorkers = 32
+		}
 	}
 
 	log.Info().Int("num_workers", numWorkers).Int("num_cpu", runtime.NumCPU()).
@@ -179,18 +225,32 @@ func (this *App) tunWriter() {
 
 func (this *App) FetchAndProcessTunPkt(workerNum int) error {
 	mtu := config.GetInstance().Mtu
-	pkt := iface.NewPacketIP(mtu)
+	readBuf := iface.NewPacketIP(mtu)
 	for {
-		n, err := this.iface.Read(pkt)
+		n, err := this.iface.Read(readBuf)
 		if err != nil {
 			log.Error().Err(err).Msg("FetchAndProcessTunPkt read ip pkt error")
 			return err
 		}
+		// 只取实际读到的 n 字节：TUN 读到的 IP 包通常小于 MTU，发送整条 mtu 缓冲会带上
+		// 尾部残留字节、浪费带宽。下游 SendPacket 会同步 marshal/拷贝，复用 readBuf 安全。
+		pkt := readBuf[:n]
 		src := pkt.GetSourceIP().String()
 		dst := pkt.GetDestinationIP().String()
 
 		log.Debug().Int("workder", workerNum).Str("src", src).Str("dst", dst).
 			Int("len", n).Msg("FetchAndProcessTunPkt::got tun packet")
+
+		// UDP 传输：出向直接交给 UDP transport（server 内部按 VIP 查路由，client 直发服务端），
+		// 不走下面 QUIC 那套 routes/ServerConn 的分发逻辑。
+		if config.GetInstance().UDP {
+			if config.GetInstance().ServerMode {
+				this.udpServer.SendPacket(pkt)
+			} else {
+				this.udpClient.SendPacket(pkt)
+			}
+			continue
+		}
 
 		if config.GetInstance().ServerMode {
 			// 一个包的处理很快，循环外取一次「现在」用于新鲜度判断即可
@@ -372,15 +432,40 @@ func (this *App) SetProxy() {
 	this.registerProxyCleanup()
 }
 
-// registerProxyCleanup 监听中断/终止信号，退出前 best-effort 还原系统代理，
-// 避免进程结束后把用户流量继续指向已失效的本地代理。
+// registerProxyCleanup 监听中断/终止信号（client/proxyonly 路径），退出前 best-effort 还原
+// 系统代理并关闭 UDP 传输，避免进程结束后把用户流量继续指向已失效的本地代理。
 func (this *App) registerProxyCleanup() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
 		log.Info().Msg("received signal, restoring system proxy")
+		this.stopTransports()
 		unsetSystemProxy()
 		os.Exit(0)
 	}()
+}
+
+// registerShutdown 监听中断/终止信号（server 路径，不涉及系统代理），退出前关闭 UDP 传输，
+// 让监听 socket 与读循环/修剪 goroutine 干净退出。
+func (this *App) registerShutdown() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		log.Info().Msg("received signal, shutting down")
+		this.stopTransports()
+		os.Exit(0)
+	}()
+}
+
+// stopTransports 关闭已启用的 UDP 传输（Stop 仅关 channel + socket，很快，可安全在信号
+// 处理里调用）。QUIC 路径有自己的生命周期，进程退出由 OS 回收。
+func (this *App) stopTransports() {
+	if this.udpClient != nil {
+		this.udpClient.Stop()
+	}
+	if this.udpServer != nil {
+		this.udpServer.Stop()
+	}
 }

@@ -1,3 +1,4 @@
 release/*
 bin/*
 bin/qtun
+.DS_Store

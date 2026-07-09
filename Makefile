@@ -19,6 +19,10 @@ linux-i686:
 arm:
 	env GOOS=linux GOARM=7 GOARCH=arm go build -v -o bin/qtun-arm main.go
 
+# 64 位树莓派系统（Pi 3/4/5 + 64-bit Raspberry Pi OS）用这个；32 位系统用上面的 arm。
+linux-arm64:
+	env GOOS=linux GOARCH=arm64 go build -v -o bin/qtun-arm64 main.go
+
 m4:
 	env GOOS=darwin GOARCH=arm64 go build -v -o bin/qtun-m4 main.go
 

@@ -2,10 +2,13 @@ package transport
 
 import (
 	"crypto/cipher"
+	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -71,21 +74,53 @@ type UDPClient struct {
 	sink       PacketSink
 	aesgcm     cipher.AEAD
 
-	mu     sync.RWMutex
-	conn   *net.UDPConn // 已 connect 的 socket（只与服务端通信）
-	closed chan struct{}
+	mu             sync.RWMutex
+	conn           udpPacketConn // 已 connect 的 socket（只与服务端通信）
+	dialUDP        udpDialer
+	reconnectCh    chan struct{}
+	reconnectDelay time.Duration
+	pingNow        chan struct{} // 重连成功后请求立即补发一次 ping
+	closed         chan struct{}
 }
 
+type udpPacketConn interface {
+	Read([]byte) (int, error)
+	Write([]byte) (int, error)
+	Close() error
+}
+
+type udpDialer func() (udpPacketConn, error)
+
 func NewUDPClient(remoteAddr, key string, sink PacketSink) *UDPClient {
-	return &UDPClient{
+	c := &UDPClient{
 		remoteAddr: remoteAddr,
 		key:        key,
 		sink:       sink,
-		closed:     make(chan struct{}),
+	}
+	c.ensureRuntimeDefaults()
+	return c
+}
+
+func (c *UDPClient) ensureRuntimeDefaults() {
+	if c.closed == nil {
+		c.closed = make(chan struct{})
+	}
+	if c.reconnectCh == nil {
+		c.reconnectCh = make(chan struct{}, 1)
+	}
+	if c.pingNow == nil {
+		c.pingNow = make(chan struct{}, 1)
+	}
+	if c.reconnectDelay == 0 {
+		c.reconnectDelay = time.Second
+	}
+	if c.dialUDP == nil {
+		c.dialUDP = c.defaultDial
 	}
 }
 
 func (c *UDPClient) Start() error {
+	c.ensureRuntimeDefaults()
 	if c.key != "" {
 		aesgcm, err := makeAES128GCM(c.key)
 		if err != nil {
@@ -100,31 +135,52 @@ func (c *UDPClient) Start() error {
 
 	go c.readLoop()
 	go c.pingLoop()
+	go c.reconnectLoop()
 	log.Info().Str("server_addr", c.remoteAddr).Msg("UDPClient started")
 	return nil
 }
 
-func (c *UDPClient) dial() error {
+func (c *UDPClient) defaultDial() (udpPacketConn, error) {
 	raddr, err := net.ResolveUDPAddr("udp", c.remoteAddr)
 	if err != nil {
-		return fmt.Errorf("UDPClient resolve %s: %w", c.remoteAddr, err)
+		return nil, fmt.Errorf("UDPClient resolve %s: %w", c.remoteAddr, err)
 	}
 	conn, err := net.DialUDP("udp", nil, raddr)
 	if err != nil {
-		return fmt.Errorf("UDPClient dial %s: %w", c.remoteAddr, err)
+		return nil, fmt.Errorf("UDPClient dial %s: %w", c.remoteAddr, err)
 	}
 	_ = conn.SetReadBuffer(udpSocketBuffer)
 	_ = conn.SetWriteBuffer(udpSocketBuffer)
+	return conn, nil
+}
+
+func (c *UDPClient) dial() error {
+	c.ensureRuntimeDefaults()
+	conn, err := c.dialUDP()
+	if err != nil {
+		return err
+	}
+
 	c.mu.Lock()
+	old := c.conn
 	c.conn = conn
 	c.mu.Unlock()
+	if old != nil && old != conn {
+		_ = old.Close()
+	}
 	return nil
 }
 
-func (c *UDPClient) getConn() *net.UDPConn {
+func (c *UDPClient) getConn() udpPacketConn {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.conn
+}
+
+func (c *UDPClient) isCurrentConn(conn udpPacketConn) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.conn == conn
 }
 
 // SendPacket 把内层 IP 报文封包后经 UDP 发往服务端。可被多个 TUN worker 并发调用
@@ -141,6 +197,7 @@ func (c *UDPClient) SendPacket(pkt iface.PacketIP) {
 	}
 	if _, err := conn.Write(framed); err != nil {
 		warnDatagramDrop(err, len(framed))
+		c.requestReconnect(err)
 	}
 }
 
@@ -160,6 +217,8 @@ func (c *UDPClient) pingLoop() {
 		select {
 		case <-c.closed:
 			return
+		case <-c.pingNow:
+			c.sendPing(vip)
 		case <-ticker.C:
 			c.sendPing(vip)
 		}
@@ -188,6 +247,7 @@ func (c *UDPClient) sendPing(vip string) {
 	}
 	if _, err := conn.Write(framed); err != nil {
 		log.Debug().Err(err).Msg("UDPClient send ping fail")
+		c.requestReconnect(err)
 	}
 }
 
@@ -196,7 +256,10 @@ func (c *UDPClient) readLoop() {
 	for {
 		conn := c.getConn()
 		if conn == nil {
-			return
+			if !c.sleepOrClosed(200 * time.Millisecond) {
+				return
+			}
+			continue
 		}
 		n, err := conn.Read(buf)
 		if err != nil {
@@ -205,9 +268,13 @@ func (c *UDPClient) readLoop() {
 				return
 			default:
 			}
+			if !c.isCurrentConn(conn) {
+				continue
+			}
 			// 连接型 UDP：服务端未启动/重启时，内核把 ICMP port-unreachable 以
 			// ECONNREFUSED 的形式在下一次 Read 上返回。绝不能因此退出（否则入向永久失效，
 			// 表现为"换了 UDP 反而零吞吐"）；歇一下继续，服务端起来后自动恢复。
+			c.requestReconnect(err)
 			log.Debug().Err(err).Msg("UDPClient read err, continue")
 			time.Sleep(200 * time.Millisecond)
 			continue
@@ -219,6 +286,98 @@ func (c *UDPClient) readLoop() {
 		}
 		dispatchToSink(msg, c.sink)
 	}
+}
+
+func (c *UDPClient) requestReconnect(err error) {
+	if !shouldReconnectUDP(err) {
+		return
+	}
+	c.ensureRuntimeDefaults()
+	select {
+	case c.reconnectCh <- struct{}{}:
+		log.Warn().Err(err).Str("server_addr", c.remoteAddr).
+			Msg("UDPClient UDP socket invalid, scheduling reconnect")
+	default:
+	}
+}
+
+func (c *UDPClient) reconnectLoop() {
+	c.ensureRuntimeDefaults()
+	for {
+		select {
+		case <-c.closed:
+			return
+		case <-c.reconnectCh:
+		}
+
+		for {
+			if c.isClosed() {
+				return
+			}
+			if err := c.dial(); err != nil {
+				log.Warn().Err(err).Str("server_addr", c.remoteAddr).
+					Msg("UDPClient reconnect dial fail")
+				if !c.sleepOrClosed(c.reconnectDelay) {
+					return
+				}
+				continue
+			}
+			log.Info().Str("server_addr", c.remoteAddr).Msg("UDPClient reconnected")
+			// 新 socket 源地址已变，立即补发一次 ping 让服务端尽快更新路由，
+			// 避免下行包继续发往旧地址直到下一次周期 ping（最多 1s）。
+			c.triggerImmediatePing()
+			break
+		}
+	}
+}
+
+// triggerImmediatePing 非阻塞地请求 pingLoop 立即补发一次 ping。pingNow 为 buffer=1，
+// 即使 pingLoop 未运行也不会阻塞（多余请求被丢弃即可）。
+func (c *UDPClient) triggerImmediatePing() {
+	select {
+	case c.pingNow <- struct{}{}:
+	default:
+	}
+}
+
+func (c *UDPClient) isClosed() bool {
+	select {
+	case <-c.closed:
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *UDPClient) sleepOrClosed(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-c.closed:
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func shouldReconnectUDP(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, syscall.EADDRNOTAVAIL) ||
+		errors.Is(err, syscall.ENETDOWN) ||
+		errors.Is(err, syscall.ENETUNREACH) ||
+		errors.Is(err, syscall.EHOSTUNREACH) {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "can't assign requested address") ||
+		strings.Contains(msg, "cannot assign requested address") ||
+		strings.Contains(msg, "network is down") ||
+		strings.Contains(msg, "network is unreachable") ||
+		strings.Contains(msg, "no route to host")
 }
 
 func (c *UDPClient) Stop() {

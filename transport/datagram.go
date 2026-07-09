@@ -69,13 +69,13 @@ func decodeDatagram(aesgcm cipher.AEAD, d []byte) ([]byte, error) {
 // lastDatagramWarn 用于节流 SendDatagram 丢包告警（每秒最多一条）。
 var lastDatagramWarn int64
 
-// warnDatagramDrop 节流打印 SendDatagram 失败（最常见是 DatagramTooLargeError：报文
-// 超过单个 datagram 上限，应调小 TUN MTU，如 --mtu 1280）。
+// warnDatagramDrop 节流打印 datagram 发送失败。小包失败通常是连接/路由异常；
+// 只有报文过大类错误才需要调小 TUN MTU（如 --mtu 1280）。
 func warnDatagramDrop(err error, size int) {
 	now := time.Now().UnixNano()
 	last := atomic.LoadInt64(&lastDatagramWarn)
 	if now-last > int64(time.Second) && atomic.CompareAndSwapInt64(&lastDatagramWarn, last, now) {
 		log.Warn().Err(err).Int("size", size).
-			Msg("SendDatagram 丢弃数据包（可能过大或连接异常），过大请调小 --mtu（如 1280）")
+			Msg("Datagram 丢弃数据包（连接/路由异常或报文过大；仅报文过大时调小 --mtu，如 1280）")
 	}
 }
